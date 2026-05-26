@@ -1,6 +1,7 @@
  subroutine init_part
   use amr_commons
   use pm_commons
+  use imf_commons
   use clfind_commons
   use random
   use hydro_commons, only : uold, nvar, ichem
@@ -492,6 +493,10 @@
 
   if(sink)call init_sink
   if(star .and. stellar_winds)call init_stellar_winds
+  if(star .and. sf_cluster_sampling)then
+     use_initial_mass=.true.
+     call init_imf_table(sf_cluster_mmin, sf_cluster_mmax)
+  endif
 
 
 contains

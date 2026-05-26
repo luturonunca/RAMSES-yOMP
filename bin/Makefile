@@ -12,7 +12,7 @@ METALS = 1 # metal
 NCHEM = 0 # chemical species
 NDUST = 0 # dust species
 #Extra variables beyond those required by dimensions, or listed above
-NVAR_EXTRA = 0 # 1 extra variable for virial parameter in dust
+NVAR_EXTRA = 3 # sf_virial(ivirial1+ixion) + 1 spare → NVAR=9
 SOLVER = hydro
 #############################################################################
 # Options
@@ -21,10 +21,10 @@ RT = 0
 DICE = 0
 REFMASK = 0 # refinement mask for zoom simulation; set to 0 for full volume
 LONGINT = 0
-QUADHILBERT = 0 # for simulations that go beyond level >= 19
+QUADHILBERT = 1 # for simulations that go beyond level >= 19
 # Set to 1 to use old MPI include statements instead of more recent `use mpi`.
 USE_OLD_MPI_INCLUDE = 0
-EXEC = ramses
+EXEC = ramsesClus
 # Activate OpenMP
 OPENMP = 1
 #############################################################################
@@ -190,7 +190,7 @@ ifeq ($(GRACKLE),1)
 MODOBJ += grackle_parameters.o
 endif
 MODOBJ += poisson_commons.o hydro_parameters.o hydro_commons.o cooling_module.o bisection.o sparse_mat.o \
-	 clfind_commons.o gadgetreadfile.o write_makefile.o write_patch.o  write_gitinfo.o
+	 clfind_commons.o gadgetreadfile.o imf_commons.o write_makefile.o write_patch.o  write_gitinfo.o
 ifeq ($(RT),1)
 MODOBJ += rt_parameters.o rt_hydro_commons.o coolrates_module.o \
          rt_spectra.o rt_cooling_module.o rt_flux_module.o

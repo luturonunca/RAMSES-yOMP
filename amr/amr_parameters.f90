@@ -340,6 +340,13 @@ module amr_parameters
   logical ::sf_virial=.false.   ! Activate SF Virial criterion
   logical ::sf_log_properties=.false. ! Log in ascii files birth properties of stars and supernovae
   logical ::sf_imf=.false.      ! Activate IMF sampling for SN feedback when resolution allows it
+  ! Cluster-based star formation (CbC)
+  logical ::sf_cluster_sampling=.false.  ! Decompose SF events into cluster populations
+  real(dp)::sf_cluster_mmin=1.0d3       ! Minimum cluster mass [Msun]
+  real(dp)::sf_cluster_mmax=1.0d8       ! Absolute maximum cluster mass [Msun]
+  real(dp)::sf_cluster_fcap=1.0d0       ! M_max,eff = fcap * M_J
+  real(dp)::sf_cluster_mJref=1.0d6      ! Reference Jeans mass for M_min,eff shift [Msun]
+  real(dp)::sf_cluster_delta=1.0d0      ! Exponent delta in M_min,eff = mmin*(M_J/mJref)^delta
   logical ::sf_compressive=.false. ! Advect compressive and solenoidal turbulence terms separately
   logical ::sn_IC=.false.     ! Allow SN from initial stars (MT: only with dice)
   logical ::bondi=.true.      ! Activate Bondi accretion onto sink particle

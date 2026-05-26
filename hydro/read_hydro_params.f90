@@ -110,7 +110,9 @@ subroutine read_hydro_params(nml_ok)
   namelist/sf_params/m_star,t_star,n_star,T2_star,g_star,del_star &
        & ,eps_star,jeans_ncells,sf_virial,sf_trelax,sf_tdiss,sf_model &
        & ,fstar_min,star_imf,sf_lamjt,write_stellar_densities &
-       & ,sf_mach_threshold,sf_log_properties,sf_imf,sf_compressive,tsfr_damp_IC
+       & ,sf_mach_threshold,sf_log_properties,sf_imf,sf_compressive,tsfr_damp_IC &
+       & ,sf_cluster_sampling,sf_cluster_mmin,sf_cluster_mmax &
+       & ,sf_cluster_fcap,sf_cluster_mJref,sf_cluster_delta
 
   ! Sink-SMBH parameters
   namelist/smbh_params/agn,smbh,sink_AGN,bondi,drag,spin_bh,force_exact_mseed &
