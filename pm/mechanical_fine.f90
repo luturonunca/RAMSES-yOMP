@@ -5,7 +5,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
   use pm_commons
   use amr_commons
   use mechanical_commons
-  use hydro_commons,only:uold
+  use hydro_commons,only:uold,gamma,nvar
 #ifdef _OPENMP
   use omp_lib
 #endif
@@ -59,6 +59,11 @@ subroutine mechanical_feedback_fine(ilevel,icount)
   real(dp),dimension(1:nchem)::Zejecta_chem_II_local
   real(dp),dimension(1:2)::ZDejecta_chem_II_local
   logical::ok,done_star
+  integer::ilun,ivar
+  real(dp)::uvar
+  character(LEN=80)::filename,filedir,fileloc,filedirini
+  character(LEN=5)::nchar,ncharcpu
+  logical::file_exist
 #ifdef RT
   real(dp),allocatable,dimension(:)::L_star
   real(dp)::Z_star,age,L_star_ion
@@ -160,16 +165,51 @@ subroutine mechanical_feedback_fine(ilevel,icount)
       ! boostx5 -> M_SNII_var~20/5=4 Msun
   endif
 
+  if(sf_log_properties.and.ifout.gt.1) then
+     call title(ifout-1,nchar)
+     if(IOGROUPSIZEREP>0) then
+        filedir='output_'//TRIM(nchar)//'/group_'//TRIM(ncharcpu)//'/'
+     else
+        filedir='output_'//TRIM(nchar)//'/'
+     endif
+     filename=TRIM(filedir)//'stars_'//TRIM(nchar)//'.out'
+     ilun=myid+10
+     call title(myid,nchar)
+     fileloc=TRIM(filename)//TRIM(nchar)
+     inquire(file=fileloc,exist=file_exist)
+     if(.not.file_exist) then
+        open(ilun, file=fileloc, form='formatted')
+        write(ilun,'(A24)',advance='no') '# event id  ilevel  mp  '
+        do idim=1,ndim
+           write(ilun,'(A2,I1,A2)',advance='no') 'xp',idim,'  '
+        enddo
+        do idim=1,ndim
+           write(ilun,'(A2,I1,A2)',advance='no') 'vp',idim,'  '
+        enddo
+        do ivar=1,nvar
+           if(ivar.ge.10) then
+              write(ilun,'(A1,I2,A2)',advance='no') 'u',ivar,'  '
+           else
+              write(ilun,'(A1,I1,A2)',advance='no') 'u',ivar,'  '
+           endif
+        enddo
+        write(ilun,'(A5)',advance='no') 'tag  '
+        write(ilun,'(A1)') ' '
+     else
+        open(ilun, file=fileloc, status="old", position="append", action="write", form='formatted')
+     endif
+  endif
+
   ! Loop over cpus
 !$omp parallel private(ip,ind_grid,ind_pos_cell,nSNe,mSNe,pSNe,nphSNe,mchSNe,mdchSNe,mZSNe,mZdSNe,igrid,npart1,npart2,ipart,next_part, &
 !$omp & x0,m8,mz8,mzd8,p8,n8,nph8,mch8,mdch8,ok,ind_son,ind,iskip,ind_cell,mejecta,nsnII_star,mass0,mass_t,mfrac_snII, &
-!$omp & Zejecta,Dejecta,Zejecta_chem_II_local,ZDejecta_chem_II_local) firstprivate(M_SNII_var) reduction(+:nSNc,nsnII_tot) default(none) &
+!$omp & Zejecta,Dejecta,Zejecta_chem_II_local,ZDejecta_chem_II_local,ivar,uvar) firstprivate(M_SNII_var,ilun) reduction(+:nSNc,nsnII_tot) default(none) &
 #if NDUST > 0
 !$omp & reduction(+:dM_prod) &
 #else
 !$omp & shared(dM_prod) &
 #endif
-!$omp & shared(ncpu,numbl,ilevel,myid,active,reception,numbp,xg,dx,skip_loc,headp,nextp,typep,use_initial_mass,mp0, &
+!$omp & shared(scale_T2,ncpu,numbl,ilevel,myid,active,reception,numbp,xg,dx,skip_loc,headp,nextp,typep,use_initial_mass,mp0, &
 !$omp & scale_msun,mp,sn2_real_delay,tp,tpl,texp,tyoung,current_time,snII_Zdep_yield,zp,snII_freq,yield,dteff,idp,done_star,xp,scale,scale_t, &
 !$omp & ncoarse,ngridmax,son,vp,metal,dust,dust_chem,MC_tracer,tmpp,Zejecta_chem_II,ZDejecta_chem_II,dust_cond_eff,fsmall_ej,flarge_ej,nchunk)
      ip=0
@@ -310,6 +350,30 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                     do ich=1,2
                        mdch8(ind_son,ich) = mdch8(ind_son,ich) + mejecta*ZDejecta_chem_II_local(ich)
                     end do
+                 endif
+
+                 if(sf_log_properties.and.ifout.gt.1) then
+!$omp critical(omp_sn_log)
+                    write(ilun,'(I10)',advance='no') 1
+                    write(ilun,'(2I10,E24.12)',advance='no') idp(ipart),ilevel,mp(ipart)
+                    do idim=1,ndim
+                       write(ilun,'(E24.12)',advance='no') xp(ipart,idim)
+                    enddo
+                    do idim=1,ndim
+                       write(ilun,'(E24.12)',advance='no') vp(ipart,idim)
+                    enddo
+                    write(ilun,'(E24.12)',advance='no') uold(ind_cell,1)
+                    do ivar=2,nvar
+                       if(ivar.eq.ndim+2)then
+                          uvar=(gamma-1.0d0)*uold(ind_cell,ndim+2)*scale_T2
+                       else
+                          uvar=uold(ind_cell,ivar)
+                       endif
+                       write(ilun,'(E24.12)',advance='no') uvar
+                    enddo
+                    write(ilun,'(I10)',advance='no') typep(ipart)%tag
+                    write(ilun,'(A1)') ' '
+!$omp end critical(omp_sn_log)
                  endif
 
                  ! subtract the mass return
@@ -459,6 +523,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
         ! End MC Tracer =============================================
    end if
 
+  if(sf_log_properties.and.ifout.gt.1) close(ilun)
 
 #ifndef WITHOUTMPI
   nSNc_mpi=0; nsnII_mpi=0d0
