@@ -495,6 +495,10 @@
   if(star .and. stellar_winds)call init_stellar_winds
   if(star .and. sf_cluster_sampling)then
      use_initial_mass=.true.
+     if(.not.allocated(mp0))then
+        allocate(mp0(npartmax))
+        mp0=0.0
+     endif
      call init_imf_table(sf_cluster_mmin, sf_cluster_mmax)
   endif
 
