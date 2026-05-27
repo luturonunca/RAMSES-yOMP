@@ -144,6 +144,7 @@ subroutine star_formation(ilevel)
            endif
         enddo
         write(ilun,'(A5)',advance='no') 'tag  '
+        write(ilun,'(A7)',advance='no') 'eta_sn '
         write(ilun,'(A1)') ' '
      else
         open(ilun, file=fileloc, status="old", position="append", action="write", form='formatted')
@@ -591,6 +592,7 @@ subroutine star_formation(ilevel)
                  write(ilun,'(E24.12)',advance='no') uvar
               enddo
               write(ilun,'(I10)',advance='no') typep(ind_part(i))%tag
+              write(ilun,'(E24.12)',advance='no') eta_sn
               write(ilun,'(A1)') ' '
            endif
 

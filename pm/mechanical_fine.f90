@@ -6,6 +6,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
   use amr_commons
   use mechanical_commons
   use hydro_commons,only:uold,gamma,nvar
+  use imf_commons
 #ifdef _OPENMP
   use omp_lib
 #endif
@@ -52,6 +53,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
   real(dp),dimension(1:nvector,1:2)::mdchSNe
   real(dp),dimension(1:twotondim,1:2)::mdch8 ! SNe
   real(dp)::mejecta,Zejecta,Dejecta,mfrac_snII
+  real(dp)::eta_sn_cbc_mech,msnii_mech,snII_freq_cbc
   real(dp)::snII_freq_noboost, M_SNII_var=0.0
   real(dp),parameter::msun2g=1.989d33
   real(dp),parameter::myr2s=3.1536000d+13
@@ -203,7 +205,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
   ! Loop over cpus
 !$omp parallel private(ip,ind_grid,ind_pos_cell,nSNe,mSNe,pSNe,nphSNe,mchSNe,mdchSNe,mZSNe,mZdSNe,igrid,npart1,npart2,ipart,next_part, &
 !$omp & x0,m8,mz8,mzd8,p8,n8,nph8,mch8,mdch8,ok,ind_son,ind,iskip,ind_cell,mejecta,nsnII_star,mass0,mass_t,mfrac_snII, &
-!$omp & Zejecta,Dejecta,Zejecta_chem_II_local,ZDejecta_chem_II_local,ivar,uvar) firstprivate(M_SNII_var,ilun) reduction(+:nSNc,nsnII_tot) default(none) &
+!$omp & Zejecta,Dejecta,Zejecta_chem_II_local,ZDejecta_chem_II_local,ivar,uvar,eta_sn_cbc_mech,msnii_mech,snII_freq_cbc) firstprivate(M_SNII_var,ilun) reduction(+:nSNc,nsnII_tot) default(none) &
 #if NDUST > 0
 !$omp & reduction(+:dM_prod) &
 #else
@@ -212,7 +214,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
 !$omp & shared(scale_T2,ncpu,numbl,ilevel,myid,active,reception,numbp,xg,dx,skip_loc,headp,nextp,typep,use_initial_mass,mp0, &
 !$omp & scale_msun,mp,sn2_real_delay,tp,tpl,texp,tyoung,current_time,snII_Zdep_yield,zp,snII_freq,yield,dteff,idp,done_star,xp,scale,scale_t, &
 !$omp & ncoarse,ngridmax,son,vp,metal,dust,dust_chem,MC_tracer,tmpp,Zejecta_chem_II,ZDejecta_chem_II,dust_cond_eff,fsmall_ej,flarge_ej,nchunk, &
-!$omp & sf_log_properties,ifout,uold,gamma)
+!$omp & sf_log_properties,ifout,uold,gamma,sf_cluster_sampling)
      ip=0
      ! Loop over grids
 !$omp do schedule(dynamic,nchunk)
@@ -256,18 +258,25 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                  endif
                  mass_t = mp (ipart)*scale_msun
 
+                 ! CbC: per-cluster SN frequency; falls back to global when inactive
+                 snII_freq_cbc = snII_freq
+                 if(sf_cluster_sampling) then
+                   call eta_sn_cluster(mass0, eta_sn_cbc_mech, msnii_mech)
+                   snII_freq_cbc = eta_sn_cbc_mech / M_SNII_var
+                 end if
+
                  ok=.false.
                  if(sn2_real_delay)then
                     if(tp(ipart).ge.tyoung)then  ! if younger than t_sne
 
                        call SNII_total_mass (zp(ipart), mfrac_snII)
-                       M_SNII_var = mfrac_snII / snII_freq
+                       M_SNII_var = mfrac_snII / snII_freq_cbc
                        ! WARNING: this is inconsistent:
                        ! M_SNII_var is computed from the total amount of mass released
                        ! (in SNII_yield_time) and used to compute the probability to explode
                        ! new SNe...
                        call get_number_of_sn2  (tp(ipart), dteff, zp(ipart), idp(ipart),&
-                             & mass0, mass_t, M_SNII_var, nsnII_star, done_star)
+                             & mass0, mass_t, M_SNII_var, nsnII_star, done_star, snII_freq_cbc)
                        if(nsnII_star>0)ok=.true.
 
                        if(ok)then
@@ -275,7 +284,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                        if(SNII_zdep_yield)then
                              call SNII_yield_time (zp(ipart), tp(ipart), tpl(ipart), mfrac_snII, Zejecta, Dejecta, Zejecta_chem_II_local, ZDejecta_chem_II_local)
                           ! Adjust M_SNII mass not to double-count the mass loss from massive stars
-                          M_SNII_var = mfrac_snII / snII_freq ! ex) 0.1 / 0.01 = 10 Msun
+                          M_SNII_var = mfrac_snII / snII_freq_cbc ! ex) 0.1 / 0.01 = 10 Msun
                        else
                           Zejecta = zp(ipart)+(1d0-zp(ipart))*yield
                              Dejecta = (zp(ipart)+(1d0-zp(ipart))*yield)*dust_cond_eff
@@ -294,7 +303,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                        if(SNII_zdep_yield)then
                           call SNII_yield (zp(ipart), mfrac_snII, Zejecta, Dejecta, Zejecta_chem_II_local, ZDejecta_chem_II_local)
                           ! Adjust M_SNII mass not to double-count the mass loss from massive stars
-                          M_SNII_var = mfrac_snII / snII_freq ! ex) 0.1 / 0.05 = 2 Msun
+                          M_SNII_var = mfrac_snII / snII_freq_cbc ! ex) 0.1 / 0.05 = 2 Msun
                        else
                           Zejecta = zp(ipart)+(1d0-zp(ipart))*yield
                           Dejecta = (zp(ipart)+(1d0-zp(ipart))*yield)*dust_cond_eff
@@ -303,7 +312,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                        endif
 
                        ! number of sn doesn't have to be an integer
-                       nsnII_star = mass0*snII_freq
+                       nsnII_star = mass0*snII_freq_cbc
                     endif
                  endif
               endif
@@ -1769,11 +1778,12 @@ end subroutine mech_fine_mpi
 !################################################################
 !################################################################
 !################################################################
-subroutine get_number_of_sn2(birth_time,dteff,zp_star,id_star,mass0,mass_t,M_SNII_var,nsn,done_star)
+subroutine get_number_of_sn2(birth_time,dteff,zp_star,id_star,mass0,mass_t,M_SNII_var,nsn,done_star,snII_freq_in)
   use amr_commons, ONLY:dp,snII_freq,eta_sn,sn2_real_delay,myid
   use random
   implicit none
   real(kind=dp)::birth_time,zp_star,mass0,mass_t,dteff ! birth_time in code, mass in Msun
+  real(kind=dp)::snII_freq_in
   real(kind=dp)::nsn
   integer::nsn_tot,nsn_sofar,nsn_age2
   integer::i,localseed,id_star   ! necessary for the random number
@@ -1816,7 +1826,7 @@ subroutine get_number_of_sn2(birth_time,dteff,zp_star,id_star,mass0,mass_t,M_SNI
   endif
 
   ! total number of SNe
-  nsn_tot   = NINT(mass0*snII_freq,kind=4)
+  nsn_tot   = NINT(mass0*snII_freq_in,kind=4)
   if(nsn_tot.eq.0)then
       write(*,*) 'Fatal error: please increase the mass of your star particle'
       stop
