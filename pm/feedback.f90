@@ -209,6 +209,7 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
   use pm_commons
   use hydro_commons
   use random
+  use imf_commons
   use SN_stats                                                       !Stoch FB
   implicit none
   integer::ng,np,ilevel
@@ -227,6 +228,7 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
   real(dp)::delta_x,tau_factor,rad_factor
   real(dp)::dx,dx_loc,scale,birth_time,current_time
   real(dp)::scale_nH,scale_T2,scale_l,scale_d,scale_t,scale_v
+  real(dp)::scale_msun,msnii_cbc
   ! Grid based arrays
   real(dp),dimension(1:nvector,1:ndim),save::x0
   integer ,dimension(1:nvector),save::ind_cell
@@ -248,6 +250,7 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
   if(sf_log_properties) ilun=myid+10
   ! Conversion factor from user units to cgs units
   call units(scale_l,scale_t,scale_d,scale_v,scale_nH,scale_T2)
+  scale_msun = scale_l**3 * scale_d / 1.989d33
 
   ! Mesh spacing in that level
   dx=0.5D0**ilevel
@@ -393,6 +396,8 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
         ! Make sure that we don't count feedback twice
         if(birth_time.lt.(current_time-t0))then
            eta_sn2   = eta_sn
+           if(sf_cluster_sampling) &
+             call eta_sn_cluster(mp(ind_part(j))*scale_msun, eta_sn2, msnii_cbc)
            if(sf_imf)then
               if(mp(ind_part(j)).le.mstar_max)then
                  if(mp(ind_part(j)).ge.msne_min) eta_sn2 = eta_ssn
