@@ -117,12 +117,12 @@ PATCH := $(subst $(SPACE),:,$(PATCH))
 #FFLAGS = -cpp $(DEFINES) -DWITHOUTMPI
 
 # --- MPI, gfortran syntax ------------------------------
-F90 = mpif90 -frecord-marker=4 -O3 -ffree-line-length-none -g -fbacktrace -fallow-argument-mismatch $(OMPFLAG)
-FFLAGS = -x f95-cpp-input $(DEFINES)
+#F90 = mpif90 -frecord-marker=4 -O3 -ffree-line-length-none -g -fbacktrace -fallow-argument-mismatch $(OMPFLAG)
+#FFLAGS = -x f95-cpp-input $(DEFINES)
 
 # --- MPI, gfortran DEBUG syntax ------------------------------
-#F90 = mpif90 -frecord-marker=4 -ffree-line-length-none -fbacktrace -g -O0 -fbounds-check -Wuninitialized -Wall $(OMPFLAG)
-#FFLAGS = -x f95-cpp-input -ffpe-trap=zero,overflow,invalid -finit-real=nan  $(DEFINES)
+F90 = mpif90 -frecord-marker=4 -ffree-line-length-none -fbacktrace -g -O0 -fcheck=bounds -fallow-argument-mismatch -Wuninitialized $(OMPFLAG)
+FFLAGS = -x f95-cpp-input -finit-real=nan  $(DEFINES)
 
 # --- MPI, pgf90 syntax ------------------------------
 #F90 = mpif90 -O3
