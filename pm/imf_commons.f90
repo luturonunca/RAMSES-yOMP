@@ -8,6 +8,9 @@ module imf_commons
   real(dp) :: imf_eta  (nimf)   ! N_SN per Msun of stars formed
   real(dp) :: imf_msnii(nimf)   ! average SN progenitor mass [Msun]
 
+  ! Maximum clusters drawn from CMF per SF event (safety ceiling)
+  integer, parameter :: max_clusters_per_event = 10000
+
   ! Chabrier (2003) IMF constants
   real(dp), parameter :: mstar_low  = 0.08d0   ! IMF lower stellar mass limit [Msun]
   real(dp), parameter :: mstar_high = 150.0d0  ! IMF upper stellar mass limit [Msun]
@@ -176,5 +179,65 @@ contains
     eta   = imf_eta  (i) + t*(imf_eta  (i+1) - imf_eta  (i))
     msnii = imf_msnii(i) + t*(imf_msnii(i+1) - imf_msnii(i))
   end subroutine eta_sn_cluster
+
+  !------------------------------------------------------------------
+  ! Decompose a SF event into clusters from CMF (dN/dM ~ M^{-2}).
+  ! Environment-dependent caps privilege massive clusters at high Mj:
+  !   mmin_eff = max(mmin0, mmin0*(Mj/Mj_ref)^delta)
+  !   mmax_eff = min(mmax,  f_cap*Mj)
+  ! Mass is exactly conserved: remainder added to last cluster.
+  ! If M_sf < mmin_eff, returns one cluster with the full mass.
+  ! All masses in Msun.
+  !------------------------------------------------------------------
+  subroutine sample_cmf_clusters(M_sf, Mj, mmin0, mmax, f_cap, Mj_ref, delta, &
+                                  seed, cluster_masses, n_cl)
+    use random
+    real(dp), intent(in)    :: M_sf, Mj, mmin0, mmax, f_cap, Mj_ref, delta
+    integer,  intent(inout) :: seed(IRandNumSize)
+    real(dp), intent(out)   :: cluster_masses(max_clusters_per_event)
+    integer,  intent(out)   :: n_cl
+
+    real(dp)     :: M_rem, mmin_eff, mmax_eff, mmax_draw, inv_mmin, inv_mmax, mcl
+    real(kind=8) :: RandNum
+
+    ! Lower cap: raises floor at high Mj, privileges massive clusters
+    mmin_eff = mmin0
+    if(Mj > 0.0d0 .and. Mj_ref > 0.0d0) &
+      mmin_eff = mmin0 * (Mj / Mj_ref)**delta
+    mmin_eff = max(mmin_eff, mmin0)
+
+    ! Upper cap
+    mmax_eff = mmax
+    if(f_cap * Mj < mmax_eff) mmax_eff = f_cap * Mj
+
+    n_cl     = 0
+    M_rem    = M_sf
+    inv_mmin = 1.0d0 / mmin_eff
+
+    do while(M_rem >= mmin_eff .and. n_cl < max_clusters_per_event)
+      mmax_draw = min(mmax_eff, M_rem)
+      if(mmax_draw <= mmin_eff) exit
+
+      ! Inverse CDF for dN/dM ~ M^{-2}:
+      ! m = 1 / (1/mmin - u*(1/mmin - 1/mmax))
+      inv_mmax = 1.0d0 / mmax_draw
+      call ranf(seed, RandNum)
+      mcl = 1.0d0 / (inv_mmin - dble(RandNum) * (inv_mmin - inv_mmax))
+
+      n_cl = n_cl + 1
+      cluster_masses(n_cl) = mcl
+      M_rem = M_rem - mcl
+    end do
+
+    ! Exact mass conservation: remainder into last cluster
+    if(n_cl > 0) then
+      cluster_masses(n_cl) = cluster_masses(n_cl) + M_rem
+    else
+      ! M_sf below mmin_eff: single cluster with full mass
+      n_cl = 1
+      cluster_masses(1) = M_sf
+    end if
+
+  end subroutine sample_cmf_clusters
 
 end module imf_commons

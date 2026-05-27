@@ -6,6 +6,7 @@ subroutine star_formation(ilevel)
   use poisson_commons
   use cooling_module, ONLY: XH=>X, rhoc, mH , twopi
   use random
+  use imf_commons
   use mpi_mod
 #ifdef _OPENMP
   use omp_lib
@@ -80,6 +81,13 @@ subroutine star_formation(ilevel)
   ! Initial kick
   real(dp)::v_kick(1:3),v_kick_mag,kms
   real(dp) :: mstar_nsn,scale_msun
+  ! CbC cluster sampling buffers
+  integer  :: ntot_cbc, nevents_cbc, iev, n_cl_tmp, ioff_cbc, icl_off
+  integer,  allocatable :: cbc_cell(:), cbc_igrid(:), cbc_ncl(:), cbc_norig(:), cbc_offset(:)
+  real(dp), allocatable :: cbc_mass_buf(:), cbc_Mjsun(:), cbc_xyz(:,:), cbc_uvw(:,:), cbc_zmet(:)
+  integer,  dimension(IRandNumSize) :: localseed_saved
+  real(dp) :: tmp_cluster_masses(max_clusters_per_event)
+  real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
 
   integer,dimension(1:IRandNumSize),save :: ompseed,ompseed_tracer
 !$omp threadprivate(ompseed,ompseed_tracer)
@@ -268,6 +276,81 @@ subroutine star_formation(ilevel)
      end do
      call starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot,mstar_lost,ompseed)
   end do
+
+  !------------------------------------------------------------------
+  ! CbC pre-pass: decompose SF events into cluster populations
+  ! Phase 1 collects event metadata and advances localseed to count n_cl.
+  ! Phase 2 restores localseed and fills the flat mass buffer identically.
+  !------------------------------------------------------------------
+  ntot_cbc    = 0
+  nevents_cbc = 0
+  if(sf_cluster_sampling .and. ntot > 0) then
+    allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
+    allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
+    localseed_saved = localseed
+    ncache = active(ilevel)%ngrid
+    do igrid = 1, ncache, nvector
+      ngrid = MIN(nvector, ncache - igrid + 1)
+      do i = 1, ngrid
+        ind_grid(i) = active(ilevel)%igrid(igrid + i - 1)
+      end do
+      do ind = 1, twotondim
+        iskip = ncoarse + (ind-1)*ngridmax
+        do i = 1, ngrid
+          ind_cell(i) = iskip + ind_grid(i)
+        end do
+        do i = 1, ngrid
+          if(flag2(ind_cell(i)) > 0) then
+            n          = flag2(ind_cell(i))
+            M_sf_msun  = dble(n) * mstar * scale_msun
+            d_cgs      = uold(ind_cell(i),1) * scale_d
+            sigma2_cbc = 0.0d0
+            if(sf_virial) sigma2_cbc = max(uold(ind_cell(i),ivirial1), 0.0d0)
+            ceff2_cgs  = ((gamma-1.0d0)*uold(ind_cell(i),5) + sigma2_cbc) * scale_v**2
+            Mj_msun    = (pi**2.5d0/6.0d0) * ceff2_cgs**1.5d0 &
+                         / (6.674d-8**1.5d0 * sqrt(max(d_cgs,1.0d-40))) / 1.989d33
+            call sample_cmf_clusters(M_sf_msun, Mj_msun, sf_cluster_mmin, &
+                 sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
+                 sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+            nevents_cbc            = nevents_cbc + 1
+            cbc_cell (nevents_cbc) = ind_cell(i)
+            cbc_igrid(nevents_cbc) = ind_grid(i)
+            cbc_norig(nevents_cbc) = n
+            cbc_ncl  (nevents_cbc) = n_cl_tmp
+            cbc_Mjsun(nevents_cbc) = Mj_msun
+            ntot_cbc               = ntot_cbc + n_cl_tmp
+            cbc_xyz(nevents_cbc,1) = (xg(ind_grid(i),1)+xc(ind,1)-skip_loc(1))*scale
+            cbc_xyz(nevents_cbc,2) = (xg(ind_grid(i),2)+xc(ind,2)-skip_loc(2))*scale
+            cbc_xyz(nevents_cbc,3) = (xg(ind_grid(i),3)+xc(ind,3)-skip_loc(3))*scale
+            cbc_uvw(nevents_cbc,1) = uold(ind_cell(i),2)
+            cbc_uvw(nevents_cbc,2) = uold(ind_cell(i),3)
+            cbc_uvw(nevents_cbc,3) = uold(ind_cell(i),4)
+            if(metal) then
+              cbc_zmet(nevents_cbc) = uold(ind_cell(i),imetal)
+            else
+              cbc_zmet(nevents_cbc) = 0.0d0
+            end if
+            flag2(ind_cell(i)) = 0
+          end if
+        end do
+      end do
+    end do
+    ! Phase 2: restore seed, fill flat mass buffer with identical draws
+    localseed = localseed_saved
+    allocate(cbc_mass_buf(ntot_cbc), cbc_offset(nevents_cbc+1))
+    ioff_cbc = 1
+    do iev = 1, nevents_cbc
+      cbc_offset(iev) = ioff_cbc
+      M_sf_msun = dble(cbc_norig(iev)) * mstar * scale_msun
+      call sample_cmf_clusters(M_sf_msun, cbc_Mjsun(iev), sf_cluster_mmin, &
+           sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
+           sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+      cbc_mass_buf(ioff_cbc:ioff_cbc+n_cl_tmp-1) = tmp_cluster_masses(1:n_cl_tmp)
+      ioff_cbc = ioff_cbc + n_cl_tmp
+    end do
+    cbc_offset(nevents_cbc+1) = ioff_cbc
+    ntot = ntot_cbc
+  end if
 
   !---------------------------------
   ! Check for free particle memory
@@ -576,6 +659,69 @@ subroutine star_formation(ilevel)
      nattach = 0
   end if
 !$omp end parallel
+
+  !------------------------------------------------------------------
+  ! CbC serial creation: spawn one particle per cluster
+  !------------------------------------------------------------------
+  if(sf_cluster_sampling .and. ntot_cbc > 0) then
+    do iev = 1, nevents_cbc
+      do icl_off = cbc_offset(iev), cbc_offset(iev+1)-1
+        index_star          = index_star + 1
+        ok_new(1)           = .true.
+        ind_grid_new(1)     = cbc_igrid(iev)
+        call remove_free(ind_part, 1)
+        call add_list(ind_part, ind_grid_new, ok_new, 1)
+        tp(ind_part(1))              = birth_epoch
+        if(sn2_real_delay) tpl(ind_part(1)) = birth_epoch
+        mp(ind_part(1))              = cbc_mass_buf(icl_off) / scale_msun
+        if(use_initial_mass) mp0(ind_part(1)) = mp(ind_part(1))
+        levelp(ind_part(1))          = ilevel
+        idp(ind_part(1))             = index_star
+        if(write_stellar_densities) &
+          st_n_tp(ind_part(1))       = uold(cbc_cell(iev),1)
+        typep(ind_part(1))%family    = FAM_STAR
+        typep(ind_part(1))%tag       = TAG_STAR_ACTIVE
+        xp(ind_part(1),1)            = cbc_xyz(iev,1)
+        xp(ind_part(1),2)            = cbc_xyz(iev,2)
+        xp(ind_part(1),3)            = cbc_xyz(iev,3)
+        vp(ind_part(1),1)            = cbc_uvw(iev,1)
+        vp(ind_part(1),2)            = cbc_uvw(iev,2)
+        vp(ind_part(1),3)            = cbc_uvw(iev,3)
+        if(metal) zp(ind_part(1))    = cbc_zmet(iev)
+        if(sf_log_properties) then
+          write(ilun,'(I10)',advance='no') 0
+          write(ilun,'(2I10,E24.12)',advance='no') idp(ind_part(1)),ilevel,mp(ind_part(1))
+          do idim=1,ndim
+            write(ilun,'(E24.12)',advance='no') xp(ind_part(1),idim)
+          enddo
+          do idim=1,ndim
+            write(ilun,'(E24.12)',advance='no') vp(ind_part(1),idim)
+          enddo
+          write(ilun,'(E24.12)',advance='no') uold(cbc_cell(iev),1)
+          do ivar=2,nvar
+            if(ivar.eq.ndim+2)then
+              uvar=(gamma-1.0)*(uold(cbc_cell(iev),ndim+2))*scale_T2
+            else
+              uvar=uold(cbc_cell(iev),ivar)
+            endif
+            write(ilun,'(E24.12)',advance='no') uvar
+          enddo
+          write(ilun,'(I10)',advance='no') typep(ind_part(1))%tag
+          write(ilun,'(A1)') ' '
+        endif
+      end do
+      ! Gas depletion: deplete same total mass as original n*mstar SF event
+      d = uold(cbc_cell(iev),1)
+      if(.not. mechanical_feedback) then
+        uold(cbc_cell(iev),1) = max(d - dble(cbc_norig(iev))*dstar*(1.0d0+f_w), 0.5d0*d)
+      else
+        uold(cbc_cell(iev),1) = d - dble(cbc_norig(iev))*dstar
+      end if
+    end do
+    deallocate(cbc_cell, cbc_igrid, cbc_norig, cbc_ncl)
+    deallocate(cbc_Mjsun, cbc_xyz, cbc_uvw, cbc_zmet)
+    deallocate(cbc_mass_buf, cbc_offset)
+  end if
 
   !---------------------------------------------------------
   ! Convert hydro variables back to conservative variables
