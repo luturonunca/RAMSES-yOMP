@@ -86,7 +86,7 @@ subroutine star_formation(ilevel)
   integer,  allocatable :: cbc_cell(:), cbc_igrid(:), cbc_ncl(:), cbc_norig(:), cbc_offset(:)
   real(dp), allocatable :: cbc_mass_buf(:), cbc_Mjsun(:), cbc_xyz(:,:), cbc_uvw(:,:), cbc_zmet(:)
   integer,  dimension(IRandNumSize) :: localseed_saved
-  real(dp) :: tmp_cluster_masses(max_clusters_per_event)
+  real(dp), allocatable :: tmp_cluster_masses(:)
   real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
 
   integer,dimension(1:IRandNumSize),save :: ompseed,ompseed_tracer
@@ -286,6 +286,7 @@ subroutine star_formation(ilevel)
   ntot_cbc    = 0
   nevents_cbc = 0
   if(sf_cluster_sampling .and. ntot > 0) then
+    allocate(tmp_cluster_masses(max_clusters_per_event))
     allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
     allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
     localseed_saved = localseed
@@ -356,6 +357,9 @@ subroutine star_formation(ilevel)
   !---------------------------------
   ! Check for free particle memory
   !---------------------------------
+  if(sf_cluster_sampling.and.ntot_cbc>0) &
+       write(*,'(A,I10,A,I10,A,I3)') &
+            '>>> CbC: ntot_cbc=',ntot_cbc,' numbp_free=',numbp_free,' ilevel=',ilevel
   ok_free=(numbp_free-ntot-ndebris_tot)>=0
 #ifndef WITHOUTMPI
   call MPI_ALLREDUCE(numbp_free,numbp_free_tot,1,MPI_INTEGER,MPI_MIN,MPI_COMM_WORLD,info)
@@ -724,6 +728,7 @@ subroutine star_formation(ilevel)
     deallocate(cbc_cell, cbc_igrid, cbc_norig, cbc_ncl)
     deallocate(cbc_Mjsun, cbc_xyz, cbc_uvw, cbc_zmet)
     deallocate(cbc_mass_buf, cbc_offset)
+    deallocate(tmp_cluster_masses)
   end if
 
   !---------------------------------------------------------
