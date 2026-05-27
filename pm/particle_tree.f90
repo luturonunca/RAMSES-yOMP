@@ -832,6 +832,7 @@ subroutine virtual_tree_fine(ilevel)
               write(*,'(A,I12,A,I6,A,I6,A,I4,A,I4)') &
                    'FATAL vt_fine chain ipart OOB=',ipart,' jpart=',jpart, &
                    ' numbp=',npart1,' ilevel=',ilevel,' icpu=',icpu
+              flush(6)
               call clean_stop
            end if
            ! Save next particle  <--- Very important !!!
@@ -1115,6 +1116,14 @@ subroutine fill_comm(ind_part,ind_com,ind_list,np,ilevel,icpu)
               write(*,'(A,I12,A,I12,A,I4,A,I4)') &
                    'FATAL fill_comm ind_part OOB=',ind_part(i),' npartmax=',npartmax, &
                    ' ilevel=',ilevel,' icpu=',icpu
+              flush(6)
+              call clean_stop
+           end if
+           if(ind_com(i)<1.or.ind_com(i)>reception(icpu,ilevel)%npart)then
+              write(*,'(A,I12,A,I12,A,I4,A,I4)') &
+                   'FATAL fill_comm ind_com OOB=',ind_com(i),' npart=',reception(icpu,ilevel)%npart, &
+                   ' ilevel=',ilevel,' icpu=',icpu
+              flush(6)
               call clean_stop
            end if
            reception(icpu,ilevel)%up(ind_com(i),current_property)=mp0(ind_part(i))
