@@ -88,6 +88,7 @@ subroutine star_formation(ilevel)
   integer,  dimension(IRandNumSize) :: localseed_saved
   real(dp) :: tmp_cluster_masses(max_clusters_per_event)
   real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
+  real(dp) :: eta_sn_cbc, msnii_cbc_sf
 
   integer,dimension(1:IRandNumSize),save :: ompseed,ompseed_tracer
 !$omp threadprivate(ompseed,ompseed_tracer)
@@ -688,6 +689,7 @@ subroutine star_formation(ilevel)
         vp(ind_part(1),2)            = cbc_uvw(iev,2)
         vp(ind_part(1),3)            = cbc_uvw(iev,3)
         if(metal) zp(ind_part(1))    = cbc_zmet(iev)
+        call eta_sn_cluster(mp(ind_part(1))*scale_msun, eta_sn_cbc, msnii_cbc_sf)
         if(sf_log_properties) then
           write(ilun,'(I10)',advance='no') 0
           write(ilun,'(2I10,E24.12)',advance='no') idp(ind_part(1)),ilevel,mp(ind_part(1))
@@ -707,6 +709,7 @@ subroutine star_formation(ilevel)
             write(ilun,'(E24.12)',advance='no') uvar
           enddo
           write(ilun,'(I10)',advance='no') typep(ind_part(1))%tag
+          write(ilun,'(E24.12)',advance='no') eta_sn_cbc
           write(ilun,'(A1)') ' '
         endif
       end do
