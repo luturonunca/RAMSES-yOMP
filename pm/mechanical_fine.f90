@@ -196,6 +196,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
            endif
         enddo
         write(ilun,'(A5)',advance='no') 'tag  '
+        write(ilun,'(A12)',advance='no') 'Mj_or_eta_sn'
         write(ilun,'(A1)') ' '
      else
         open(ilun, file=fileloc, status="old", position="append", action="write", form='formatted')
@@ -262,7 +263,10 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                  snII_freq_cbc = snII_freq
                  if(sf_cluster_sampling) then
                    call eta_sn_cluster(mass0, eta_sn_cbc_mech, msnii_mech)
-                   snII_freq_cbc = eta_sn_cbc_mech / M_SNII_var
+                   ! eta_sn_cbc_mech = imf_eta = N_SN/Msun (already a frequency).
+                   ! Must NOT divide by M_SNII_var — that would make it ~10x too small,
+                   ! causing runaway SF and no hot gas.
+                   snII_freq_cbc = eta_sn_cbc_mech
                  end if
 
                  ok=.false.
@@ -382,6 +386,11 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                        write(ilun,'(E24.12)',advance='no') uvar
                     enddo
                     write(ilun,'(I10)',advance='no') typep(ipart)%tag
+                    if(sf_cluster_sampling) then
+                       write(ilun,'(E24.12)',advance='no') eta_sn_cbc_mech
+                    else
+                       write(ilun,'(E24.12)',advance='no') eta_sn
+                    endif
                     write(ilun,'(A1)') ' '
 !$omp end critical(omp_sn_log)
                  endif
