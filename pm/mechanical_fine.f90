@@ -215,7 +215,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
 !$omp & shared(scale_T2,ncpu,numbl,ilevel,myid,active,reception,numbp,xg,dx,skip_loc,headp,nextp,typep,use_initial_mass,mp0, &
 !$omp & scale_msun,mp,sn2_real_delay,tp,tpl,texp,tyoung,current_time,snII_Zdep_yield,zp,snII_freq,yield,dteff,idp,done_star,xp,scale,scale_t, &
 !$omp & ncoarse,ngridmax,son,vp,metal,dust,dust_chem,MC_tracer,tmpp,Zejecta_chem_II,ZDejecta_chem_II,dust_cond_eff,fsmall_ej,flarge_ej,nchunk, &
-!$omp & sf_log_properties,ifout,uold,gamma,sf_cluster_sampling)
+!$omp & sf_log_properties,ifout,uold,gamma,sf_cluster_sampling,eta_sn)
      ip=0
      ! Loop over grids
 !$omp do schedule(dynamic,nchunk)
