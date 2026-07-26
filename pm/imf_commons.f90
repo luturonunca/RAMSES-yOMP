@@ -253,13 +253,16 @@ contains
   ! sf_model=1 branch) from the same multi-ff sigs/scrit already used
   ! for the star formation rate.
   ! Mass is exactly conserved: remainder added to last cluster.
+  ! mmin/mmax bound both the sampling center Mcl_char and every draw,
+  ! matching the caps already enforced by sample_cmf_clusters (and the
+  ! range the eta_sn_cluster IMF table is built over).
   ! If M_event < mmin, returns one cluster with the full mass.
   ! All masses in Msun.
   !------------------------------------------------------------------
-  subroutine sample_lognormal_clusters(M_event, Mcl_char, sigma_lnM, mmin, &
+  subroutine sample_lognormal_clusters(M_event, Mcl_char, sigma_lnM, mmin, mmax, &
                                         seed, cluster_masses, n_cl)
     use random
-    real(dp), intent(in)    :: M_event, Mcl_char, sigma_lnM, mmin
+    real(dp), intent(in)    :: M_event, Mcl_char, sigma_lnM, mmin, mmax
     integer,  intent(inout) :: seed(IRandNumSize)
     real(dp), intent(out)   :: cluster_masses(max_clusters_per_event)
     integer,  intent(out)   :: n_cl
@@ -267,7 +270,7 @@ contains
     real(dp)     :: M_rem, mcl, lnMcl_char
     real(kind=8) :: GaussNum
 
-    lnMcl_char = log(max(Mcl_char, mmin))
+    lnMcl_char = log(min(max(Mcl_char, mmin), mmax))
 
     n_cl  = 0
     M_rem = M_event
@@ -275,7 +278,7 @@ contains
     do while(M_rem >= mmin .and. n_cl < max_clusters_per_event)
       call gaussdev(seed, GaussNum)
       mcl = exp(lnMcl_char + sigma_lnM*dble(GaussNum))
-      mcl = max(mcl, mmin)
+      mcl = min(max(mcl, mmin), mmax)
       mcl = min(mcl, M_rem)
 
       n_cl = n_cl + 1

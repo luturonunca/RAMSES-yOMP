@@ -315,7 +315,7 @@ subroutine star_formation(ilevel)
             if(trim(sf_cluster_kernel)=='lognormal') then
               Mj_msun  = cbc_mclchar_buf(ind_cell(i))    ! logged as characteristic cluster mass
               call sample_lognormal_clusters(M_sf_msun, cbc_mclchar_buf(ind_cell(i)), &
-                   cbc_sigmalnm_buf(ind_cell(i)), sf_cluster_mmin, &
+                   cbc_sigmalnm_buf(ind_cell(i)), sf_cluster_mmin, sf_cluster_mmax, &
                    localseed, tmp_cluster_masses, n_cl_tmp)
             else
               d_cgs      = uold(ind_cell(i),1) * scale_d
@@ -360,7 +360,7 @@ subroutine star_formation(ilevel)
       M_sf_msun = dble(cbc_norig(iev)) * mstar * scale_msun
       if(trim(sf_cluster_kernel)=='lognormal') then
         call sample_lognormal_clusters(M_sf_msun, cbc_Mjsun(iev), &
-             cbc_sigmalnm_buf(cbc_cell(iev)), sf_cluster_mmin, &
+             cbc_sigmalnm_buf(cbc_cell(iev)), sf_cluster_mmin, sf_cluster_mmax, &
              localseed, tmp_cluster_masses, n_cl_tmp)
       else
         call sample_cmf_clusters(M_sf_msun, cbc_Mjsun(iev), sf_cluster_mmin, &
