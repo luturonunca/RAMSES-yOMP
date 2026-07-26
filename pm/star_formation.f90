@@ -267,6 +267,9 @@ subroutine star_formation(ilevel)
   !------------------------------------------------
   ntot=0
   ndebris_tot=0
+  if(sf_cluster_sampling .and. trim(sf_cluster_kernel)=='lognormal') then
+     allocate(cbc_mclchar_buf(0:ubound(flag2,1)), cbc_sigmalnm_buf(0:ubound(flag2,1)))
+  endif
   ! Loop over grids
   ncache=active(ilevel)%ngrid
 !$omp parallel do private(ngrid,ind_grid) reduction(+:ntot,mstar_tot,mstar_lost) schedule(static)
@@ -286,6 +289,10 @@ subroutine star_formation(ilevel)
   ntot_cbc    = 0
   nevents_cbc = 0
   if(sf_cluster_sampling .and. ntot > 0) then
+    if(trim(sf_cluster_kernel)=='lognormal' .and. sf_model/=1) then
+       if(myid==1) write(*,*) 'sf_cluster_kernel=lognormal requires sf_model=1 -- STOP'
+       call clean_stop
+    endif
     allocate(tmp_cluster_masses(max_clusters_per_event))
     allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
     allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
@@ -305,15 +312,22 @@ subroutine star_formation(ilevel)
           if(flag2(ind_cell(i)) > 0) then
             n          = flag2(ind_cell(i))
             M_sf_msun  = dble(n) * mstar * scale_msun
-            d_cgs      = uold(ind_cell(i),1) * scale_d
-            sigma2_cbc = 0.0d0
-            if(sf_virial) sigma2_cbc = max(uold(ind_cell(i),ivirial1), 0.0d0)
-            ceff2_cgs  = ((gamma-1.0d0)*uold(ind_cell(i),5) + sigma2_cbc) * scale_v**2
-            Mj_msun    = (pi**2.5d0/6.0d0) * ceff2_cgs**1.5d0 &
-                         / (6.674d-8**1.5d0 * sqrt(max(d_cgs,1.0d-40))) / 1.989d33
-            call sample_cmf_clusters(M_sf_msun, Mj_msun, sf_cluster_mmin, &
-                 sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
-                 sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+            if(trim(sf_cluster_kernel)=='lognormal') then
+              Mj_msun  = cbc_mclchar_buf(ind_cell(i))    ! logged as characteristic cluster mass
+              call sample_lognormal_clusters(M_sf_msun, cbc_mclchar_buf(ind_cell(i)), &
+                   cbc_sigmalnm_buf(ind_cell(i)), sf_cluster_mmin, &
+                   localseed, tmp_cluster_masses, n_cl_tmp)
+            else
+              d_cgs      = uold(ind_cell(i),1) * scale_d
+              sigma2_cbc = 0.0d0
+              if(sf_virial) sigma2_cbc = max(uold(ind_cell(i),ivirial1), 0.0d0)
+              ceff2_cgs  = ((gamma-1.0d0)*uold(ind_cell(i),5) + sigma2_cbc) * scale_v**2
+              Mj_msun    = (pi**2.5d0/6.0d0) * ceff2_cgs**1.5d0 &
+                           / (6.674d-8**1.5d0 * sqrt(max(d_cgs,1.0d-40))) / 1.989d33
+              call sample_cmf_clusters(M_sf_msun, Mj_msun, sf_cluster_mmin, &
+                   sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
+                   sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+            endif
             nevents_cbc            = nevents_cbc + 1
             cbc_cell (nevents_cbc) = ind_cell(i)
             cbc_igrid(nevents_cbc) = ind_grid(i)
@@ -344,15 +358,23 @@ subroutine star_formation(ilevel)
     do iev = 1, nevents_cbc
       cbc_offset(iev) = ioff_cbc
       M_sf_msun = dble(cbc_norig(iev)) * mstar * scale_msun
-      call sample_cmf_clusters(M_sf_msun, cbc_Mjsun(iev), sf_cluster_mmin, &
-           sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
-           sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+      if(trim(sf_cluster_kernel)=='lognormal') then
+        call sample_lognormal_clusters(M_sf_msun, cbc_Mjsun(iev), &
+             cbc_sigmalnm_buf(cbc_cell(iev)), sf_cluster_mmin, &
+             localseed, tmp_cluster_masses, n_cl_tmp)
+      else
+        call sample_cmf_clusters(M_sf_msun, cbc_Mjsun(iev), sf_cluster_mmin, &
+             sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
+             sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+      endif
       cbc_mass_buf(ioff_cbc:ioff_cbc+n_cl_tmp-1) = tmp_cluster_masses(1:n_cl_tmp)
       ioff_cbc = ioff_cbc + n_cl_tmp
     end do
     cbc_offset(nevents_cbc+1) = ioff_cbc
     ntot = ntot_cbc
   end if
+  if(allocated(cbc_mclchar_buf))  deallocate(cbc_mclchar_buf)
+  if(allocated(cbc_sigmalnm_buf)) deallocate(cbc_sigmalnm_buf)
 
   !---------------------------------
   ! Check for free particle memory
@@ -812,9 +834,11 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
   use poisson_commons
   use cooling_module, ONLY: twopi
   use random
+  use imf_commons
   integer::ilevel
   ! local constants
   real(dp)::d0,mgas,mcell
+  real(dp)::rho_frag,Rchar,Mgchar    ! CbC lognormal fragmentation kernel (sf_cluster_kernel='lognormal')
   real(dp)::scale_nH,scale_T2,scale_l,scale_d,scale_t,scale_v
   real(dp),dimension(1:twotondim,1:3)::xc
   ! other variables
@@ -1073,6 +1097,21 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
                        else
                           sfr_ff(i) = 0.0d0
                        end if
+                       ! CbC subgrid fragmentation kernel: characteristic cluster mass and
+                       ! lognormal width from the same turbulent density PDF (sigs,scrit)
+                       if(sf_cluster_sampling .and. trim(sf_cluster_kernel)=='lognormal') then
+                          ! SF-weighted fragmentation density: closed-form ratio of the same
+                          ! Gaussian-in-s tail integrals used for sfr_ff above (exponents 5/2,3/2)
+                          rho_frag  = d*exp(1.5d0*sigs) &
+                               * erfc_pre_f08((scrit-2.0d0*sigs)/sqrt(2.0d0*sigs)) &
+                               / max(erfc_pre_f08((scrit-sigs)/sqrt(2.0d0*sigs)), 1.0d-30)
+                          ! Coherent scale where alpha_vir(R_char)=1, sigma(R)^2 ~ R^(2*sf_cluster_turb_index)
+                          Rchar     = (pi*factG*rho_frag*dx_loc**(2.0d0*sf_cluster_turb_index) &
+                               / (5.0d0*sigma2))**(1.0d0/(2.0d0*sf_cluster_turb_index-2.0d0))
+                          Mgchar    = (4.0d0/3.0d0)*pi*(rho_frag*scale_d)*(Rchar*scale_l)**3/1.989d33
+                          cbc_mclchar_buf (ind_cell(i)) = sf_cluster_eps_cl*Mgchar
+                          cbc_sigmalnm_buf(ind_cell(i)) = sqrt(sigs)
+                       endif
                     ! Multi-ff PN model
                     CASE (2)
                        ! Virial parameter

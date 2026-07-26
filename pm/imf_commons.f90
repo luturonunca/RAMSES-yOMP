@@ -11,6 +11,11 @@ module imf_commons
   ! Maximum clusters drawn from CMF per SF event (safety ceiling)
   integer, parameter :: max_clusters_per_event = 10000
 
+  ! Per-cell characteristic cluster mass [Msun] and lognormal width, for
+  ! sf_cluster_kernel='lognormal'. Filled in starform2 (sf_model=1 branch),
+  ! consumed by the CbC pre-pass in star_formation. Indexed like flag2.
+  real(dp), allocatable :: cbc_mclchar_buf(:), cbc_sigmalnm_buf(:)
+
   ! Chabrier (2003) IMF constants
   real(dp), parameter :: mstar_low  = 0.08d0   ! IMF lower stellar mass limit [Msun]
   real(dp), parameter :: mstar_high = 150.0d0  ! IMF upper stellar mass limit [Msun]
@@ -239,5 +244,54 @@ contains
     end if
 
   end subroutine sample_cmf_clusters
+
+  !------------------------------------------------------------------
+  ! Decompose a SF event into clusters drawn from a lognormal kernel
+  ! tied to the unresolved turbulent density PDF (subgrid fragmentation
+  ! model): ln M_cl ~ N(ln Mcl_char, sigma_lnM^2).
+  ! Mcl_char and sigma_lnM are precomputed per SF event (see starform2,
+  ! sf_model=1 branch) from the same multi-ff sigs/scrit already used
+  ! for the star formation rate.
+  ! Mass is exactly conserved: remainder added to last cluster.
+  ! If M_event < mmin, returns one cluster with the full mass.
+  ! All masses in Msun.
+  !------------------------------------------------------------------
+  subroutine sample_lognormal_clusters(M_event, Mcl_char, sigma_lnM, mmin, &
+                                        seed, cluster_masses, n_cl)
+    use random
+    real(dp), intent(in)    :: M_event, Mcl_char, sigma_lnM, mmin
+    integer,  intent(inout) :: seed(IRandNumSize)
+    real(dp), intent(out)   :: cluster_masses(max_clusters_per_event)
+    integer,  intent(out)   :: n_cl
+
+    real(dp)     :: M_rem, mcl, lnMcl_char
+    real(kind=8) :: GaussNum
+
+    lnMcl_char = log(max(Mcl_char, mmin))
+
+    n_cl  = 0
+    M_rem = M_event
+
+    do while(M_rem >= mmin .and. n_cl < max_clusters_per_event)
+      call gaussdev(seed, GaussNum)
+      mcl = exp(lnMcl_char + sigma_lnM*dble(GaussNum))
+      mcl = max(mcl, mmin)
+      mcl = min(mcl, M_rem)
+
+      n_cl = n_cl + 1
+      cluster_masses(n_cl) = mcl
+      M_rem = M_rem - mcl
+    end do
+
+    ! Exact mass conservation: remainder into last cluster
+    if(n_cl > 0) then
+      cluster_masses(n_cl) = cluster_masses(n_cl) + M_rem
+    else
+      ! M_event below mmin: single cluster with full mass
+      n_cl = 1
+      cluster_masses(1) = M_event
+    end if
+
+  end subroutine sample_lognormal_clusters
 
 end module imf_commons
