@@ -268,7 +268,7 @@ contains
     integer,  intent(out)   :: n_cl
 
     real(dp)     :: M_rem, mcl, lnMcl_char
-    real(kind=8) :: GaussNum
+    real(kind=8) :: RandNum1, RandNum2, v1, v2, rsq, fac, GaussNum
 
     lnMcl_char = log(min(max(Mcl_char, mmin), mmax))
 
@@ -276,7 +276,22 @@ contains
     M_rem = M_event
 
     do while(M_rem >= mmin .and. n_cl < max_clusters_per_event)
-      call gaussdev(seed, GaussNum)
+      ! Box-Muller, inlined from random::gaussdev but without its module-level
+      ! cache (IGauss/GaussBak): that cache lives outside seed(:), so it is not
+      ! restored by the CbC pre-pass's phase-1/phase-2 seed replay and desyncs
+      ! the two passes. Drawing (and discarding) a fresh pair every time keeps
+      ! the entire RNG state in seed(:), as sample_cmf_clusters already assumes.
+      rsq = 0.0d0
+      do while(rsq.ge.1.0d0 .or. rsq.le.0.0d0)
+        call ranf(seed, RandNum1)
+        call ranf(seed, RandNum2)
+        v1  = 2.0d0*RandNum1 - 1.0d0
+        v2  = 2.0d0*RandNum2 - 1.0d0
+        rsq = v1**2 + v2**2
+      end do
+      fac      = sqrt(-2.0d0*log(rsq)/rsq)
+      GaussNum = v2*fac
+
       mcl = exp(lnMcl_char + sigma_lnM*dble(GaussNum))
       mcl = min(max(mcl, mmin), mmax)
       mcl = min(mcl, M_rem)
