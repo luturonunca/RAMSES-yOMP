@@ -11,10 +11,11 @@ module imf_commons
   ! Maximum clusters drawn from CMF per SF event (safety ceiling)
   integer, parameter :: max_clusters_per_event = 10000
 
-  ! Per-cell characteristic cluster mass [Msun] and lognormal width, for
-  ! sf_cluster_kernel='lognormal'. Filled in starform2 (sf_model=1 branch),
-  ! consumed by the CbC pre-pass in star_formation. Indexed like flag2.
-  real(dp), allocatable :: cbc_mclchar_buf(:), cbc_sigmalnm_buf(:)
+  ! Per-cell characteristic cluster mass [Msun], lognormal width, and
+  ! fragmentation coherence radius [code units], for sf_cluster_kernel=
+  ! 'lognormal'. Filled in starform2 (sf_model=1 branch), consumed by the
+  ! CbC pre-pass in star_formation. Indexed like flag2.
+  real(dp), allocatable :: cbc_mclchar_buf(:), cbc_sigmalnm_buf(:), cbc_rchar_buf(:)
 
   ! Chabrier (2003) IMF constants
   real(dp), parameter :: mstar_low  = 0.08d0   ! IMF lower stellar mass limit [Msun]

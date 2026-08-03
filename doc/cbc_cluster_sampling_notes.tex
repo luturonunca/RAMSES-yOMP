@@ -1,0 +1,279 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{listings}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible
+}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Cluster-by-Cluster (CbC) Sampling in RAMSES-yOMP\\
+\large Notes on implementation, feedback coupling, and the missing $M^{-2}$ tail}
+\author{Branch: \code{clusterBclusters}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{Aim of the project}
+
+Standard RAMSES star formation converts gas into ``star particles'' of a
+single fixed mass $m_\star$, drawn stochastically (Poisson) from the local
+Schmidt-type star formation rate. Each particle is not a single star: it
+represents an unresolved sub-population. Feedback (SN number, energy, mass
+and metal return) is then injected using a single, global efficiency
+\code{eta\_sn}, applied identically to every particle regardless of its
+mass. This implicitly assumes every particle fully samples the stellar IMF,
+which is a poor approximation once $m_\star$ approaches or falls below the
+mass needed to sample the high-mass (SN-progenitor) end of the IMF --- a
+regime that is common at high redshift and/or coarse mass resolution.
+
+The Cluster-by-Cluster (CbC) branch replaces this with a physically
+motivated alternative: each star formation (SF) event is represented not as
+$n$ identical low-mass particles, but as a small population of
+\emph{stellar clusters}, with
+
+\begin{itemize}
+  \item cluster masses drawn from a distribution consistent with
+        turbulent-fragmentation / cluster-formation physics, and
+  \item a supernova efficiency \code{eta\_sn} computed \emph{per cluster},
+        self-consistently from explicit IMF integration, rather than
+        assumed constant.
+\end{itemize}
+
+The physical payoff is that low-mass clusters --- which under-sample the
+massive/SN end of the IMF --- are given a correspondingly lower and more
+stochastic SN efficiency, while massive clusters approach the fully-sampled
+IMF value. This couples the mass at which star formation is resolved to the
+strength and timing of the feedback it produces.
+
+\section{What is implemented, and how clusters are made}
+
+\subsection{The star formation budget is unchanged}
+
+The local multi-free-fall Krumholz--McKee-type star formation rate
+(\code{sf\_model=1}) is untouched. Over a hydro sub-step, a cell's expected
+star-forming mass is Poisson-sampled into $n$ quanta of $m_\star$:
+\[
+M_{\rm sf} = n \cdot m_\star \cdot \code{scale\_msun}
+\]
+(\code{star\_formation.f90:314}, \code{:1236--1238}). $M_{\rm sf}$ is the
+fixed mass budget for the SF event --- it is \emph{not} altered by CbC; CbC
+only changes what that budget is converted \emph{into}.
+
+\subsection{Partitioning $M_{\rm sf}$ into clusters}
+
+Two interchangeable kernels (\code{sf\_cluster\_kernel}) decompose $M_{\rm
+sf}$ into one or more cluster masses that sum exactly to $M_{\rm sf}$:
+
+\paragraph{CMF kernel (\code{sample\_cmf\_clusters}, \code{imf\_commons.f90:197--246}).}
+Draws from a power-law cluster mass function $dN/dM \sim M^{-2}$ via
+inverse-CDF sampling,
+\[
+m_{\rm cl} = \left[\frac{1}{m_{\rm min}} - u\left(\frac{1}{m_{\rm min}} -
+\frac{1}{m_{\rm max}}\right)\right]^{-1}, \qquad u \sim \mathcal{U}(0,1),
+\]
+between environment-dependent caps $m_{\rm min,eff}$, $m_{\rm max,eff}$ tied
+to the cell's Jeans mass $M_J$. Draws are made sequentially, subtracting
+each cluster mass from a running remainder $M_{\rm rem}$, until $M_{\rm
+rem} < m_{\rm min,eff}$; the leftover is folded into the last cluster to
+conserve mass exactly.
+
+\paragraph{Lognormal kernel (\code{sample\_lognormal\_clusters}, \code{imf\_commons.f90:262--313}).}
+Same sequential/remainder algorithm, but draws
+\[
+\ln m_{\rm cl} \sim \mathcal{N}\!\left(\ln M_{\rm cl,char},\, \sigma_{\ln
+M}^2\right).
+\]
+$M_{\rm cl,char}$ and $\sigma_{\ln M}$ are computed once per SF event
+(\code{star\_formation.f90:1100--1113}), reusing the same turbulent
+density-PDF quantities ($s_{\rm igs}$, $s_{\rm crit}$) already computed for
+the KM star formation rate itself:
+
+\begin{align}
+\rho_{\rm frag} &= d\,e^{1.5\,s_{\rm igs}}\;
+  \frac{\mathrm{erfc}\!\left(\frac{s_{\rm crit}-2s_{\rm igs}}{\sqrt{2 s_{\rm igs}}}\right)}
+       {\mathrm{erfc}\!\left(\frac{s_{\rm crit}-s_{\rm igs}}{\sqrt{2 s_{\rm igs}}}\right)}
+  &&\text{(SF-weighted core density)} \label{eq:rhofrag}\\[4pt]
+R_{\rm char} &= \left(\frac{\pi G \rho_{\rm frag}\, dx^{2p}}{5\,\sigma^2}\right)^{\!1/(2p-2)}
+  &&\text{(virial-balance coherence scale, } \alpha_{\rm vir}(R_{\rm char})=1\text{)} \label{eq:rchar}\\[4pt]
+M_{\rm g,char} &= \tfrac{4}{3}\pi \rho_{\rm frag} R_{\rm char}^3
+  &&\text{(core gas mass)} \label{eq:mgchar}\\[4pt]
+M_{\rm cl,char} &= \code{sf\_cluster\_eps\_cl} \times M_{\rm g,char}
+  &&\text{(core $\to$ star efficiency, fixed constant, currently 0.3)} \label{eq:mclchar}\\[4pt]
+\sigma_{\ln M} &= \sqrt{s_{\rm igs}}
+  &&\text{(width $=$ turbulent density-PDF variance)} \label{eq:sigmalnm}
+\end{align}
+
+Here $p=\code{sf\_cluster\_turb\_index}$ is the Larson index in
+$\sigma(R)^2 \sim R^{2p}$. Physically, $M_{\rm g,char}$ is the mass
+contained in a marginally self-gravitating turbulent core at the
+SF-weighted density: it is the \emph{local, intrinsic} fragment scale that
+the cell's own turbulence and self-gravity would produce, independent of
+how much gas this particular episode happens to convert.
+
+\subsection{The IMF/SN-efficiency table}
+
+At startup, \code{init\_imf\_table} (\code{imf\_commons.f90:128--162})
+tabulates $\eta_{\rm SN}(M_{\rm cl})$ and $\langle M_{\rm SNII}
+\rangle(M_{\rm cl})$ over $[\code{sf\_cluster\_mmin}, \code{sf\_cluster\_mmax}]$
+by:
+\begin{enumerate}
+  \item integrating the Chabrier (2003) IMF, lognormal below $1\,M_\odot$
+        and a power law ($\alpha=2.35$) above;
+  \item applying the Weidner--Kroupa (2004) maximum-stellar-mass--cluster-mass
+        relation $m_{\rm max}(M_{\rm cl})$, solved by bisection from the
+        condition that one star more massive than $m_{\rm max}$ is expected
+        per cluster of mass $M_{\rm cl}$;
+  \item integrating star and SN-progenitor counts/masses up to $m_{\rm
+        max}(M_{\rm cl})$.
+\end{enumerate}
+\code{eta\_sn\_cluster(mcl, eta, msnii)} then linearly interpolates this
+table in $\log M_{\rm cl}$ at feedback time. No \code{eta\_sn} value is
+stored on the particle; it is recomputed on the fly from the particle's own
+mass whenever feedback fires.
+
+\section{What the cluster mass implies for feedback}
+
+In the legacy path, every particle uses the same constant
+\code{eta\_sn} (0.313 in this run's namelist) $\times$ particle mass to set
+the number of SNe, independent of particle mass.
+
+In the CbC path, \code{eta\_sn\_cluster} is called wherever feedback is
+injected:
+\begin{itemize}
+  \item \code{pm/mechanical\_fine.f90:265}: \code{snII\_freq\_cbc =
+        eta\_sn\_cluster(mass0)} replaces the global \code{snII\_freq} used
+        to set SN timing/number in the mechanical feedback scheme
+        (\code{mechanical\_feedback=.true.} in this run).
+  \item \code{pm/feedback.f90:399--401}: same substitution for the
+        thermal/kinetic feedback path.
+\end{itemize}
+
+Because $\eta_{\rm SN}(M_{\rm cl})$ comes directly from the Weidner-Kroupa
+$m_{\rm max}(M_{\rm cl})$ relation, low-mass clusters (near
+\code{sf\_cluster\_mmin}$=10^3\,M_\odot$) have a lower $m_{\rm max}$, sample
+less of the SN-progenitor tail of the IMF, and get a correspondingly lower
+$\eta_{\rm SN}$; massive clusters (near
+\code{sf\_cluster\_mmax}$=10^6\,M_\odot$) approach the fully-sampled IMF
+value. SN energy, mass and metal-yield injection therefore vary
+cluster-by-cluster, reflecting each cluster's own stochastically sampled
+IMF rather than an assumed universal, fully-sampled population. This
+mass-efficiency coupling is the physical purpose of the whole exercise ---
+which is precisely why the mass distribution the clusters are actually
+drawn from matters.
+
+\section{Why the resulting mass function is not an $M^{-2}$ tail}
+
+The measured cluster mass histogram (log-spaced bins, $10^3$--$10^7\,M_\odot$)
+shows a roughly flat pedestal from $10^3$ up to $\sim\!3\times10^4\,M_\odot$,
+a sharp spike of $\sim\!300$ counts in the bin centered near
+$3\times10^4\,M_\odot$, and essentially nothing above that. This is not a
+lognormal, and it is not a declining power law. The mechanism traced
+through the code is as follows.
+
+\subsection{$M_{\rm cl,char}$ is decoupled from $M_{\rm sf}$}
+
+$M_{\rm cl,char}$ (Eq.~\ref{eq:mclchar}) is computed purely from
+cell-local quantities ($d$, $\sigma^2$, $c_s^2$, $dx$) --- it does not
+reference the event's own budget $M_{\rm sf}$ at all. $M_{\rm sf}$, on the
+other hand, is dominated by the smallest Poisson quantum ($n=1$, i.e.\ a
+single $m_\star$) for the large majority of SF events, simply because most
+cells cross the SF threshold with only marginally enough gas to convert one
+quantum per sub-step. Since many cells share similar local turbulent
+conditions at a given AMR level, $M_{\rm cl,char}$ is also nearly the same
+across most events.
+
+\subsection{The sequential sampler collapses to a single cluster}
+
+Both kernels draw sequentially and clip each draw to the remaining budget:
+\begin{lstlisting}
+mcl = exp(lnMcl_char + sigma_lnM*GaussNum)
+mcl = min(max(mcl, mmin), mmax)
+mcl = min(mcl, M_rem)          ! imf_commons.f90:297
+\end{lstlisting}
+Whenever the first draw is comparable to or larger than $M_{\rm rem} =
+M_{\rm sf}$ (expected whenever $M_{\rm cl,char} \gtrsim M_{\rm sf}$, per
+\S4.1), the clip collapses the entire episode to \emph{one} cluster with
+mass exactly $M_{\rm sf}$ --- discarding the kernel's shape for that event
+entirely. Because this happens for the dominant, nearly-identical $n=1$
+events, the outcome is a narrow spike at (close to) the single-quantum mass
+$m_\star \cdot \code{scale\_msun}$: this is the observed spike, and it is a
+signature of the stochastic SF quantization leaking through, not of
+cluster-formation physics.
+
+\subsection{The minority of fragmenting events produce a flat, not power-law, tail}
+
+The less common events with larger $M_{\rm sf}$ (larger $n$) do fragment
+into a handful of clusters. But two further effects prevent this
+sub-population from converging to a smooth $M^{-2}$-like envelope:
+
+\begin{enumerate}
+  \item \textbf{No enforced fragment count.} Because $M_{\rm cl,char}$ is
+        not tied to $M_{\rm sf}$, the expected number of fragments $N_{\rm
+        frag} \sim M_{\rm sf}/M_{\rm cl,char}$ is never an explicit,
+        designed quantity --- it is an accidental side effect of how many
+        times the clip in \S4.2 is avoided before $M_{\rm rem}$ runs out.
+        Aggregating many events therefore does not correspond to summing
+        many properly-normalized per-event CMFs/lognormals over a
+        meaningful spread of $M_{\rm cl,char}/M_{\rm sf}$ ratios.
+  \item \textbf{Width mismatch.} $\sigma_{\ln M} = \sqrt{s_{\rm igs}}$
+        (Eq.~\ref{eq:sigmalnm}) inherits the full variance of the
+        turbulent \emph{density} PDF directly. Gravo-turbulent
+        fragmentation theory (e.g.\ Padoan \& Nordlund 2002; Hennebelle \&
+        Chabrier 2008) predicts a substantially \emph{narrower} core mass
+        function width after the density-to-mass mapping
+        ($M \sim \rho R^3$, with $R$ itself density-dependent through
+        Eq.~\ref{eq:rchar}) is applied. Using the raw density-PDF width
+        over-disperses individual draws, washing out any convergent shape
+        when many events are combined --- consistent with the observed
+        flat pedestal rather than a peaked or power-law distribution.
+\end{enumerate}
+
+\subsection{Summary of the diagnosis}
+
+The spike is the stochastic SF particle-mass quantization ($n=1$ events)
+showing through unfragmented; the flat pedestal is the minority of
+multi-cluster events, under-dispersed in count and over-dispersed in width
+relative to what the physics intends. Neither reflects the intended
+turbulence-driven cluster mass function.
+
+\section{Proposed fix (discussed, not yet implemented)}
+
+Tie $M_{\rm cl,char}$ explicitly to the event's own budget rather than
+treating it as an independent absolute scale:
+\[
+\epsilon \equiv \min\!\left(\frac{M_{\rm frag}}{M_{\rm sf}},\,1\right),
+\qquad
+M_{\rm cl,char} = \epsilon \, M_{\rm sf} = \min(M_{\rm frag}, M_{\rm sf}),
+\]
+where $M_{\rm frag} \equiv M_{\rm g,char}$ (Eq.~\ref{eq:mgchar}) is kept as
+the existing, physically-derived local fragment scale (turbulence- and,
+via $c_s^2$, metallicity/cooling-aware). This guarantees:
+\begin{itemize}
+  \item $M_{\rm cl,char} \le M_{\rm sf}$ by construction --- the collapse
+        to a single cluster becomes a genuine physical regime ($M_{\rm sf}
+        \lesssim M_{\rm frag}$, i.e.\ the budget does not even cover one
+        local fragment), not an artifact of comparing two unrelated
+        scales;
+  \item $N_{\rm frag} \sim 1/\epsilon = M_{\rm sf}/M_{\rm frag}$ becomes an
+        explicit, physically meaningful quantity that varies smoothly with
+        each event's own budget, instead of being dominated by the
+        Poisson SF quantization;
+  \item the fixed constant \code{sf\_cluster\_eps\_cl}$=0.3$ is replaced by
+        a per-event, physically-derived ratio.
+\end{itemize}
+Separately, $\sigma_{\ln M}$ should be revisited: propagate $s_{\rm igs}$
+through the density$\to$mass mapping (Eqs.~\ref{eq:rhofrag}--\ref{eq:mgchar})
+rather than adopting $\sqrt{s_{\rm igs}}$ directly, so the sampled width
+reflects the core mass function width predicted by fragmentation theory
+rather than the raw turbulent density-PDF width.
+
+\end{document}

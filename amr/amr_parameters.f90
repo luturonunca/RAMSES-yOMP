@@ -350,6 +350,7 @@ module amr_parameters
   real(dp)::sf_cluster_delta=1.0d0      ! Exponent delta in M_min,eff = mmin*(M_J/mJref)^delta
   real(dp)::sf_cluster_eps_cl=0.3d0     ! Core-to-star efficiency: M_cl,char = eps_cl * M_g,char (lognormal kernel)
   real(dp)::sf_cluster_turb_index=0.5d0 ! Line-width-size index p in sigma(R)^2 ~ R^(2p), used to solve alpha_vir(R_char)=1 (lognormal kernel)
+  real(dp)::sf_cluster_sigma_dex=0.5d0  ! Lognormal kernel width [dex, log10], fixed per HC08/PN02 CMF width (lognormal kernel)
   logical ::sf_compressive=.false. ! Advect compressive and solenoidal turbulence terms separately
   logical ::sn_IC=.false.     ! Allow SN from initial stars (MT: only with dice)
   logical ::bondi=.true.      ! Activate Bondi accretion onto sink particle

@@ -113,7 +113,7 @@ subroutine read_hydro_params(nml_ok)
        & ,sf_mach_threshold,sf_log_properties,sf_imf,sf_compressive,tsfr_damp_IC &
        & ,sf_cluster_sampling,sf_cluster_kernel,sf_cluster_mmin,sf_cluster_mmax &
        & ,sf_cluster_fcap,sf_cluster_mJref,sf_cluster_delta &
-       & ,sf_cluster_eps_cl,sf_cluster_turb_index
+       & ,sf_cluster_eps_cl,sf_cluster_turb_index,sf_cluster_sigma_dex
 
   ! Sink-SMBH parameters
   namelist/smbh_params/agn,smbh,sink_AGN,bondi,drag,spin_bh,force_exact_mseed &

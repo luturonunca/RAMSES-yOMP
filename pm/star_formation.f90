@@ -66,7 +66,9 @@ subroutine star_formation(ilevel)
   logical ,dimension(1:nvector)::ok,ok_new
   integer(i8b) ,dimension(1:ncpu)::ntot_star_cpu,ntot_star_all
   character(LEN=80)::filename,filedir,fileloc,filedirini
+  character(LEN=80)::filename_cbc,fileloc_cbc
   character(LEN=5)::nchar,ncharcpu
+  integer :: ilun_cbc = 20   ! CbC per-event diagnostic log unit
   logical::file_exist
 #ifdef SOLVERmhd
   real(dp)::bx1,bx2,by1,by2,bz1,bz2,A,B,C,emag,beta,fbeta
@@ -88,6 +90,7 @@ subroutine star_formation(ilevel)
   integer,  dimension(IRandNumSize) :: localseed_saved
   real(dp), allocatable :: tmp_cluster_masses(:)
   real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
+  real(dp) :: sigma_lnM_ev, nH_cbc, Rchar_ev, Rchar_pc, dxloc_pc
 
   integer,dimension(1:IRandNumSize),save :: ompseed,ompseed_tracer
 !$omp threadprivate(ompseed,ompseed_tracer)
@@ -147,6 +150,27 @@ subroutine star_formation(ilevel)
         write(ilun,'(A1)') ' '
      else
         open(ilun, file=fileloc, status="old", position="append", action="write", form='formatted')
+     endif
+  endif
+
+  ! CbC diagnostic log: one line per SF event, recording the mass budget
+  ! (M_sf) alongside the kernel parameters it was sampled against (Mcl_char,
+  ! sigma_lnM) and the resulting fragment count (n_cl), to diagnose whether
+  ! the sampled cluster masses are actually consistent with the fragmentation
+  ! kernel or collapsing to a single cluster (see doc/cbc_cluster_sampling_notes.tex).
+  if(sf_log_properties.and.sf_cluster_sampling.and.ifout.gt.1) then
+     ilun_cbc=myid+10+ncpu
+     call title(ifout-1,nchar)
+     filename_cbc=TRIM(filedir)//'cbc_events_'//TRIM(nchar)//'.out'
+     call title(myid,nchar)
+     fileloc_cbc=TRIM(filename_cbc)//TRIM(nchar)
+     inquire(file=fileloc_cbc,exist=file_exist)
+     if((.not.file_exist).or.(abs(t-trestart).lt.dtnew(ilevel))) then
+        open(ilun_cbc, file=fileloc_cbc, form='formatted')
+        write(ilun_cbc,'(A)') &
+             '# ilevel  n_orig  M_sf_msun  Mcl_char_msun  sigma_lnM  M_sf_over_Mcl  nH_cgs  Rchar_pc  dxloc_pc  n_cl'
+     else
+        open(ilun_cbc, file=fileloc_cbc, status="old", position="append", action="write", form='formatted')
      endif
   endif
 
@@ -268,7 +292,8 @@ subroutine star_formation(ilevel)
   ntot=0
   ndebris_tot=0
   if(sf_cluster_sampling .and. trim(sf_cluster_kernel)=='lognormal') then
-     allocate(cbc_mclchar_buf(0:ubound(flag2,1)), cbc_sigmalnm_buf(0:ubound(flag2,1)))
+     allocate(cbc_mclchar_buf(0:ubound(flag2,1)), cbc_sigmalnm_buf(0:ubound(flag2,1)), &
+              cbc_rchar_buf(0:ubound(flag2,1)))
   endif
   ! Loop over grids
   ncache=active(ilevel)%ngrid
@@ -313,8 +338,14 @@ subroutine star_formation(ilevel)
             n          = flag2(ind_cell(i))
             M_sf_msun  = dble(n) * mstar * scale_msun
             if(trim(sf_cluster_kernel)=='lognormal') then
-              Mj_msun  = cbc_mclchar_buf(ind_cell(i))    ! logged as characteristic cluster mass
-              call sample_lognormal_clusters(M_sf_msun, cbc_mclchar_buf(ind_cell(i)), &
+              ! Mcl_char = epsilon*M_sf, epsilon=min(Mfrag/M_sf,1): cap the
+              ! turbulence-derived fragment scale (cbc_mclchar_buf, computed
+              ! in starform2 before M_sf is known) by this event's own mass
+              ! budget (see doc/cbc_cluster_sampling_notes.tex)
+              Mj_msun      = min(cbc_mclchar_buf(ind_cell(i)), M_sf_msun)
+              sigma_lnM_ev = cbc_sigmalnm_buf(ind_cell(i))
+              Rchar_ev     = cbc_rchar_buf(ind_cell(i))
+              call sample_lognormal_clusters(M_sf_msun, Mj_msun, &
                    cbc_sigmalnm_buf(ind_cell(i)), sf_cluster_mmin, sf_cluster_mmax, &
                    localseed, tmp_cluster_masses, n_cl_tmp)
             else
@@ -324,9 +355,19 @@ subroutine star_formation(ilevel)
               ceff2_cgs  = ((gamma-1.0d0)*uold(ind_cell(i),5) + sigma2_cbc) * scale_v**2
               Mj_msun    = (pi**2.5d0/6.0d0) * ceff2_cgs**1.5d0 &
                            / (6.674d-8**1.5d0 * sqrt(max(d_cgs,1.0d-40))) / 1.989d33
+              sigma_lnM_ev = 0.0d0
+              Rchar_ev     = 0.0d0
               call sample_cmf_clusters(M_sf_msun, Mj_msun, sf_cluster_mmin, &
                    sf_cluster_mmax, sf_cluster_fcap, sf_cluster_mJref, &
                    sf_cluster_delta, localseed, tmp_cluster_masses, n_cl_tmp)
+            endif
+            if(sf_log_properties.and.sf_cluster_sampling) then
+              nH_cbc   = uold(ind_cell(i),1) * scale_nH
+              Rchar_pc = Rchar_ev * scale_l / 3.08d18
+              dxloc_pc = dx_loc   * scale_l / 3.08d18
+              write(ilun_cbc,'(2I10,7E16.6,I10)') ilevel, n, M_sf_msun, Mj_msun, &
+                   sigma_lnM_ev, M_sf_msun/max(Mj_msun,1.0d-30), nH_cbc, &
+                   Rchar_pc, dxloc_pc, n_cl_tmp
             endif
             nevents_cbc            = nevents_cbc + 1
             cbc_cell (nevents_cbc) = ind_cell(i)
@@ -375,6 +416,7 @@ subroutine star_formation(ilevel)
   end if
   if(allocated(cbc_mclchar_buf))  deallocate(cbc_mclchar_buf)
   if(allocated(cbc_sigmalnm_buf)) deallocate(cbc_sigmalnm_buf)
+  if(allocated(cbc_rchar_buf))    deallocate(cbc_rchar_buf)
 
   !---------------------------------
   ! Check for free particle memory
@@ -767,6 +809,7 @@ subroutine star_formation(ilevel)
   end do
 
   if(sf_log_properties) close(ilun)
+  if(sf_log_properties.and.sf_cluster_sampling) close(ilun_cbc)
 
 end subroutine star_formation
 #endif
@@ -1110,7 +1153,12 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
                                / (5.0d0*sigma2))**(1.0d0/(2.0d0*sf_cluster_turb_index-2.0d0))
                           Mgchar    = (4.0d0/3.0d0)*pi*(rho_frag*scale_d)*(Rchar*scale_l)**3/1.989d33
                           cbc_mclchar_buf (ind_cell(i)) = sf_cluster_eps_cl*Mgchar
-                          cbc_sigmalnm_buf(ind_cell(i)) = sqrt(sigs)
+                          ! Fixed width (HC08/PN02: CMF width ~0.3-0.5 dex, roughly
+                          ! Mach-independent) rather than the turbulent density-PDF
+                          ! width sqrt(sigs), which measures a different quantity
+                          ! (see doc/cbc_cluster_sampling_notes.tex)
+                          cbc_sigmalnm_buf(ind_cell(i)) = sf_cluster_sigma_dex*log(10.0d0)
+                          cbc_rchar_buf   (ind_cell(i)) = Rchar
                        endif
                     ! Multi-ff PN model
                     CASE (2)
