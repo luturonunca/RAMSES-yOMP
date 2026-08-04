@@ -87,10 +87,11 @@ subroutine star_formation(ilevel)
   integer  :: ntot_cbc, nevents_cbc, iev, n_cl_tmp, ioff_cbc, icl_off
   integer,  allocatable :: cbc_cell(:), cbc_igrid(:), cbc_ncl(:), cbc_norig(:), cbc_offset(:)
   real(dp), allocatable :: cbc_mass_buf(:), cbc_Mjsun(:), cbc_xyz(:,:), cbc_uvw(:,:), cbc_zmet(:)
+  real(dp), allocatable :: cbc_Msf(:)
   integer,  dimension(IRandNumSize) :: localseed_saved
   real(dp), allocatable :: tmp_cluster_masses(:)
   real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
-  real(dp) :: sigma_lnM_ev, nH_cbc, Rchar_ev, Rchar_pc, dxloc_pc
+  real(dp) :: sigma_lnM_ev, nH_cbc, Rchar_ev, Rchar_pc, dxloc_pc, dstar_cbc
 
   integer,dimension(1:IRandNumSize),save :: ompseed,ompseed_tracer
 !$omp threadprivate(ompseed,ompseed_tracer)
@@ -295,6 +296,9 @@ subroutine star_formation(ilevel)
      allocate(cbc_mclchar_buf(0:ubound(flag2,1)), cbc_sigmalnm_buf(0:ubound(flag2,1)), &
               cbc_rchar_buf(0:ubound(flag2,1)))
   endif
+  if(sf_cluster_sampling) then
+     allocate(cbc_mgas_buf(0:ubound(flag2,1)))
+  endif
   ! Loop over grids
   ncache=active(ilevel)%ngrid
 !$omp parallel do private(ngrid,ind_grid) reduction(+:ntot,mstar_tot,mstar_lost) schedule(static)
@@ -321,6 +325,7 @@ subroutine star_formation(ilevel)
     allocate(tmp_cluster_masses(max_clusters_per_event))
     allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
     allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
+    allocate(cbc_Msf(ntot))
     localseed_saved = localseed
     ncache = active(ilevel)%ngrid
     do igrid = 1, ncache, nvector
@@ -336,7 +341,11 @@ subroutine star_formation(ilevel)
         do i = 1, ngrid
           if(flag2(ind_cell(i)) > 0) then
             n          = flag2(ind_cell(i))
-            M_sf_msun  = dble(n) * mstar * scale_msun
+            ! M_sf = continuous SF-law budget (cbc_mgas_buf, captured in
+            ! starform2 before Poisson quantization), not the quantized
+            ! n*mstar -- avoids rounding every event onto the same mstar
+            ! grid regardless of local density/turbulence
+            M_sf_msun  = cbc_mgas_buf(ind_cell(i)) * scale_msun
             if(trim(sf_cluster_kernel)=='lognormal') then
               ! Mcl_char = epsilon*M_sf, epsilon=min(Mfrag/M_sf,1): cap the
               ! turbulence-derived fragment scale (cbc_mclchar_buf, computed
@@ -375,6 +384,7 @@ subroutine star_formation(ilevel)
             cbc_norig(nevents_cbc) = n
             cbc_ncl  (nevents_cbc) = n_cl_tmp
             cbc_Mjsun(nevents_cbc) = Mj_msun
+            cbc_Msf  (nevents_cbc) = M_sf_msun
             ntot_cbc               = ntot_cbc + n_cl_tmp
             cbc_xyz(nevents_cbc,1) = (xg(ind_grid(i),1)+xc(ind,1)-skip_loc(1))*scale
             cbc_xyz(nevents_cbc,2) = (xg(ind_grid(i),2)+xc(ind,2)-skip_loc(2))*scale
@@ -398,7 +408,7 @@ subroutine star_formation(ilevel)
     ioff_cbc = 1
     do iev = 1, nevents_cbc
       cbc_offset(iev) = ioff_cbc
-      M_sf_msun = dble(cbc_norig(iev)) * mstar * scale_msun
+      M_sf_msun = cbc_Msf(iev)
       if(trim(sf_cluster_kernel)=='lognormal') then
         call sample_lognormal_clusters(M_sf_msun, cbc_Mjsun(iev), &
              cbc_sigmalnm_buf(cbc_cell(iev)), sf_cluster_mmin, sf_cluster_mmax, &
@@ -417,6 +427,7 @@ subroutine star_formation(ilevel)
   if(allocated(cbc_mclchar_buf))  deallocate(cbc_mclchar_buf)
   if(allocated(cbc_sigmalnm_buf)) deallocate(cbc_sigmalnm_buf)
   if(allocated(cbc_rchar_buf))    deallocate(cbc_rchar_buf)
+  if(allocated(cbc_mgas_buf))     deallocate(cbc_mgas_buf)
 
   !---------------------------------
   ! Check for free particle memory
@@ -781,16 +792,19 @@ subroutine star_formation(ilevel)
           write(ilun,'(A1)') ' '
         endif
       end do
-      ! Gas depletion: deplete same total mass as original n*mstar SF event
+      ! Gas depletion: deplete the continuous M_sf actually used to sample
+      ! this event's clusters (cbc_Msf), not the quantized n*mstar
       d = uold(cbc_cell(iev),1)
+      dstar_cbc = (cbc_Msf(iev)/scale_msun)/vol_loc
       if(.not. mechanical_feedback) then
-        uold(cbc_cell(iev),1) = max(d - dble(cbc_norig(iev))*dstar*(1.0d0+f_w), 0.5d0*d)
+        uold(cbc_cell(iev),1) = max(d - dstar_cbc*(1.0d0+f_w), 0.5d0*d)
       else
-        uold(cbc_cell(iev),1) = d - dble(cbc_norig(iev))*dstar
+        uold(cbc_cell(iev),1) = d - dstar_cbc
       end if
     end do
     deallocate(cbc_cell, cbc_igrid, cbc_norig, cbc_ncl)
     deallocate(cbc_Mjsun, cbc_xyz, cbc_uvw, cbc_zmet)
+    deallocate(cbc_Msf)
     deallocate(cbc_mass_buf, cbc_offset)
     deallocate(tmp_cluster_masses)
   end if
@@ -1287,6 +1301,10 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
            if((trel>0.).and.(.not.cosmo)) PoissMean = PoissMean*min((t/trel),1._dp)
            ! Compute Poisson realisation
            call poissdev(seed,PoissMean,nstar(i))
+           ! CbC: continuous SF-law budget (M_sf), captured before mgas is
+           ! overwritten below by the Poisson-quantized n*mstar value. Capped
+           ! at the same 90% depletion safety limit as the quantized path.
+           if(sf_cluster_sampling) cbc_mgas_buf(ind_cell(i)) = min(mgas, 0.9d0*mcell)
            ! Compute depleted gas mass
            mgas=nstar(i)*mstar
            ! Security to prevent more than 90% of gas depletion

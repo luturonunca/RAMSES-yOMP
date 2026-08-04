@@ -17,6 +17,12 @@ module imf_commons
   ! CbC pre-pass in star_formation. Indexed like flag2.
   real(dp), allocatable :: cbc_mclchar_buf(:), cbc_sigmalnm_buf(:), cbc_rchar_buf(:)
 
+  ! Per-cell continuous SF-law gas mass [code units], captured in starform2
+  ! before the Poisson quantization (mgas=nstar*mstar) overwrites it. Used
+  ! as the CbC mass budget M_sf instead of the quantized n*mstar. Filled
+  ! whenever sf_cluster_sampling=.true. (both kernels). Indexed like flag2.
+  real(dp), allocatable :: cbc_mgas_buf(:)
+
   ! Chabrier (2003) IMF constants
   real(dp), parameter :: mstar_low  = 0.08d0   ! IMF lower stellar mass limit [Msun]
   real(dp), parameter :: mstar_high = 150.0d0  ! IMF upper stellar mass limit [Msun]
