@@ -87,7 +87,9 @@ subroutine star_formation(ilevel)
   integer  :: ntot_cbc, nevents_cbc, iev, n_cl_tmp, ioff_cbc, icl_off
   integer,  allocatable :: cbc_cell(:), cbc_igrid(:), cbc_ncl(:), cbc_norig(:), cbc_offset(:)
   real(dp), allocatable :: cbc_mass_buf(:), cbc_Mjsun(:), cbc_xyz(:,:), cbc_uvw(:,:), cbc_zmet(:)
-  real(dp), allocatable :: cbc_Msf(:)
+  real(dp), allocatable :: cbc_Msf(:), cbc_avir(:), cbc_imfs(:)
+  integer  :: itab_cbc
+  real(dp) :: eta_cbc_log, msnii_cbc_log
   integer,  dimension(IRandNumSize) :: localseed_saved
   real(dp), allocatable :: tmp_cluster_masses(:)
   real(dp) :: M_sf_msun, Mj_msun, d_cgs, ceff2_cgs, sigma2_cbc
@@ -148,6 +150,7 @@ subroutine star_formation(ilevel)
         enddo
         write(ilun,'(A5)',advance='no') 'tag  '
         write(ilun,'(A12)',advance='no') 'Mj_or_eta_sn'
+        if(sf_cluster_sampling) write(ilun,'(A26)',advance='no') '  alpha_vir  imf_s  eta_sn'
         write(ilun,'(A1)') ' '
      else
         open(ilun, file=fileloc, status="old", position="append", action="write", form='formatted')
@@ -297,7 +300,7 @@ subroutine star_formation(ilevel)
               cbc_rchar_buf(0:ubound(flag2,1)))
   endif
   if(sf_cluster_sampling) then
-     allocate(cbc_mgas_buf(0:ubound(flag2,1)))
+     allocate(cbc_mgas_buf(0:ubound(flag2,1)), cbc_avir_buf(0:ubound(flag2,1)))
   endif
   ! Loop over grids
   ncache=active(ilevel)%ngrid
@@ -322,10 +325,14 @@ subroutine star_formation(ilevel)
        if(myid==1) write(*,*) 'sf_cluster_kernel=lognormal requires sf_model=1 -- STOP'
        call clean_stop
     endif
+    if(sf_cluster_imf_avir_crit>0.0d0 .and. sf_model/=1) then
+       if(myid==1) write(*,*) 'sf_cluster_imf_avir_crit>0 requires sf_model=1 -- STOP'
+       call clean_stop
+    endif
     allocate(tmp_cluster_masses(max_clusters_per_event))
     allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
     allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
-    allocate(cbc_Msf(ntot))
+    allocate(cbc_Msf(ntot), cbc_avir(ntot), cbc_imfs(ntot))
     localseed_saved = localseed
     ncache = active(ilevel)%ngrid
     do igrid = 1, ncache, nvector
@@ -385,6 +392,12 @@ subroutine star_formation(ilevel)
             cbc_ncl  (nevents_cbc) = n_cl_tmp
             cbc_Mjsun(nevents_cbc) = Mj_msun
             cbc_Msf  (nevents_cbc) = M_sf_msun
+            ! IMF high-mass slope fixed at birth by the parent cell alpha_vir
+            cbc_avir (nevents_cbc) = cbc_avir_buf(ind_cell(i))
+            cbc_imfs (nevents_cbc) = chab_alpha
+            if(sf_cluster_imf_avir_crit <= 0.0d0 .or. &
+                 cbc_avir(nevents_cbc) < sf_cluster_imf_avir_crit) &
+                 cbc_imfs(nevents_cbc) = sf_cluster_imf_s_th
             ntot_cbc               = ntot_cbc + n_cl_tmp
             cbc_xyz(nevents_cbc,1) = (xg(ind_grid(i),1)+xc(ind,1)-skip_loc(1))*scale
             cbc_xyz(nevents_cbc,2) = (xg(ind_grid(i),2)+xc(ind,2)-skip_loc(2))*scale
@@ -428,6 +441,7 @@ subroutine star_formation(ilevel)
   if(allocated(cbc_sigmalnm_buf)) deallocate(cbc_sigmalnm_buf)
   if(allocated(cbc_rchar_buf))    deallocate(cbc_rchar_buf)
   if(allocated(cbc_mgas_buf))     deallocate(cbc_mgas_buf)
+  if(allocated(cbc_avir_buf))     deallocate(cbc_avir_buf)
 
   !---------------------------------
   ! Check for free particle memory
@@ -769,6 +783,7 @@ subroutine star_formation(ilevel)
         vp(ind_part(1),2)            = cbc_uvw(iev,2)
         vp(ind_part(1),3)            = cbc_uvw(iev,3)
         if(metal) zp(ind_part(1))    = cbc_zmet(iev)
+        st_imfs_tp(ind_part(1))      = cbc_imfs(iev)
         if(sf_log_properties) then
           write(ilun,'(I10)',advance='no') 0
           write(ilun,'(2I10,E24.12)',advance='no') idp(ind_part(1)),ilevel,mp(ind_part(1))
@@ -789,6 +804,12 @@ subroutine star_formation(ilevel)
           enddo
           write(ilun,'(I10)',advance='no') typep(ind_part(1))%tag
           write(ilun,'(E24.12)',advance='no') cbc_Mjsun(iev)
+          itab_cbc = 1
+          if(cbc_imfs(iev) == imf_s(2)) itab_cbc = 2
+          call eta_sn_cluster(cbc_mass_buf(icl_off), itab_cbc, eta_cbc_log, msnii_cbc_log)
+          write(ilun,'(E24.12)',advance='no') cbc_avir(iev)
+          write(ilun,'(E24.12)',advance='no') cbc_imfs(iev)
+          write(ilun,'(E24.12)',advance='no') eta_cbc_log
           write(ilun,'(A1)') ' '
         endif
       end do
@@ -804,7 +825,7 @@ subroutine star_formation(ilevel)
     end do
     deallocate(cbc_cell, cbc_igrid, cbc_norig, cbc_ncl)
     deallocate(cbc_Mjsun, cbc_xyz, cbc_uvw, cbc_zmet)
-    deallocate(cbc_Msf)
+    deallocate(cbc_Msf, cbc_avir, cbc_imfs)
     deallocate(cbc_mass_buf, cbc_offset)
     deallocate(tmp_cluster_masses)
   end if
@@ -1124,6 +1145,7 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
                     CASE (1)
                        ! Virial parameter
                        alpha0    = (5.0*sigma2)/(pi*factG*d*dx_loc**2)
+                       if(sf_cluster_sampling) cbc_avir_buf(ind_cell(i)) = alpha0
                        ! Turbulent forcing parameter (Federrath 2008 & 2010)
                        if(pcomp*ndim-1.0.eq.0d0) then
                           zeta   = 0.5

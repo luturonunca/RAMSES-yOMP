@@ -229,7 +229,8 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
   real(dp)::delta_x,tau_factor,rad_factor
   real(dp)::dx,dx_loc,scale,birth_time,current_time
   real(dp)::scale_nH,scale_T2,scale_l,scale_d,scale_t,scale_v
-  real(dp)::scale_msun,msnii_cbc
+  real(dp)::scale_msun,msnii_cbc,eta_cbc,ESN2
+  integer::itab
   ! Grid based arrays
   real(dp),dimension(1:nvector,1:ndim),save::x0
   integer ,dimension(1:nvector),save::ind_cell
@@ -397,8 +398,16 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
         ! Make sure that we don't count feedback twice
         if(birth_time.lt.(current_time-t0))then
            eta_sn2   = eta_sn
-           if(sf_cluster_sampling) &
-             call eta_sn_cluster(mp(ind_part(j))*scale_msun, eta_sn2, msnii_cbc)
+           ESN2      = ESN
+           if(sf_cluster_sampling) then
+             itab = 1
+             if(st_imfs_tp(ind_part(j)) == imf_s(2)) itab = 2
+             call eta_sn_cluster(mp(ind_part(j))*scale_msun, itab, eta_cbc, msnii_cbc)
+             ! eta_cbc is N_SN/Msun: ejected mass fraction is N_SN times mean progenitor mass
+             eta_sn2 = eta_cbc*msnii_cbc
+             ! 1d51 erg per SN; ESN is 1d51 erg per 10 Msun ejected
+             if(msnii_cbc > 0d0) ESN2 = ESN*10d0/msnii_cbc
+           endif
            if(sf_imf)then
               if(mp(ind_part(j)).le.mstar_max)then
                  if(mp(ind_part(j)).ge.msne_min) eta_sn2 = eta_ssn
@@ -409,7 +418,7 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
            mejecta=eta_sn2*mp(ind_part(j))
            mloss(j)=mloss(j)+mejecta/vol_loc(j)
            ! Thermal energy
-           ethermal(j)=ethermal(j)+mejecta*ESN/vol_loc(j)
+           ethermal(j)=ethermal(j)+mejecta*ESN2/vol_loc(j)
            ! Metallicity
            if(metal)then
               zloss=yield+(1d0-yield)*zp(ind_part(j))
@@ -444,11 +453,11 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
 
            !BEGIN Dalla Vecchia & Schaye feedback----------------------------
            n_SN_want = n_SN_want + 1                             ! Statistics
-           E_SN_want = E_SN_want + mejecta*ESN                   ! Statistics
+           E_SN_want = E_SN_want + mejecta*ESN2                  ! Statistics
            if(SN_dT2_min .gt. 0d0) then
               de_min = SN_dT2_min / (gamma-1d0) / scale_T2
               mcell = unew(indp(j),1) * vol_loc(j)
-              prob = mejecta*ESN / de_min / (mcell+mejecta)  ! SN probability
+              prob = mejecta*ESN2 / de_min / (mcell+mejecta) ! SN probability
               if(prob.le.1d0) then     ! Stoch SNe to fill in required deltaT
                  n_pr = n_pr + 1                                 ! Statistics
                  pr_tot = pr_tot + prob                          ! Statistics

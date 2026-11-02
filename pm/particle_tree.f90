@@ -767,6 +767,7 @@ subroutine virtual_tree_fine(ilevel)
      particle_data_width=particle_data_width+nchem
 #endif
      if(write_stellar_densities) particle_data_width = particle_data_width + 1
+     if(sf_cluster_sampling) particle_data_width = particle_data_width + 1
      if(use_initial_mass) particle_data_width = particle_data_width + 1
   endif
 
@@ -1110,6 +1111,12 @@ subroutine fill_comm(ind_part,ind_com,ind_list,np,ilevel,icpu)
         end do
         current_property = current_property+1
      endif
+     if(sf_cluster_sampling) then
+        do i=1,np
+           reception(icpu,ilevel)%up(ind_com(i),current_property)=st_imfs_tp(ind_part(i))
+        end do
+        current_property = current_property+1
+     endif
      if(use_initial_mass)then
         do i=1,np
            if(ind_part(i)<1.or.ind_part(i)>npartmax)then
@@ -1256,6 +1263,12 @@ subroutine empty_comm(ind_com,np,ilevel,icpu)
            st_n_tp(ind_part(i))=emission(icpu,ilevel)%up(ind_com(i),current_property)   !SD
 !           st_n_SN(ind_part(i))=emission(icpu,ilevel)%up(ind_com(i),current_property+1) !SD
 !           st_e_SN(ind_part(i))=emission(icpu,ilevel)%up(ind_com(i),current_property+2) !SD
+        end do
+        current_property=current_property+1
+     endif
+     if(sf_cluster_sampling) then
+        do i=1,np
+           st_imfs_tp(ind_part(i))=emission(icpu,ilevel)%up(ind_com(i),current_property)
         end do
         current_property=current_property+1
      endif

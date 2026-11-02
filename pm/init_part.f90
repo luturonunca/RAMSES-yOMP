@@ -141,6 +141,10 @@
 !        allocate(st_e_SN(npartmax))
 !        st_e_SN=0.0
      endif
+     if(sf_cluster_sampling) then
+        allocate(st_imfs_tp(npartmax))
+        st_imfs_tp=0.0
+     endif
      if(metal)then
         allocate(zp(npartmax))
         zp=0.0
@@ -291,6 +295,11 @@
 !           st_e_SN(1:npart2) = xdp
         endif
         ! END SD PATCH------------------------------------------------------!SD
+        if(sf_cluster_sampling) then
+           ! Read CbC IMF slope at birth
+           read(ilun)xdp
+           st_imfs_tp(1:npart2) = xdp
+        endif
 
         deallocate(xdp)
      end if
@@ -499,7 +508,7 @@
         allocate(mp0(npartmax))
         mp0=0.0
      endif
-     call init_imf_table(sf_cluster_mmin, sf_cluster_mmax)
+     call init_imf_table(sf_cluster_mmin, sf_cluster_mmax, sf_cluster_imf_s_th)
   endif
 
 

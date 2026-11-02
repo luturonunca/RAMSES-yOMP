@@ -113,7 +113,8 @@ subroutine read_hydro_params(nml_ok)
        & ,sf_mach_threshold,sf_log_properties,sf_imf,sf_compressive,tsfr_damp_IC &
        & ,sf_cluster_sampling,sf_cluster_kernel,sf_cluster_mmin,sf_cluster_mmax &
        & ,sf_cluster_fcap,sf_cluster_mJref,sf_cluster_delta &
-       & ,sf_cluster_eps_cl,sf_cluster_turb_index,sf_cluster_sigma_dex
+       & ,sf_cluster_eps_cl,sf_cluster_turb_index,sf_cluster_sigma_dex &
+       & ,sf_cluster_imf_s_th,sf_cluster_imf_avir_crit
 
   ! Sink-SMBH parameters
   namelist/smbh_params/agn,smbh,sink_AGN,bondi,drag,spin_bh,force_exact_mseed &
@@ -355,6 +356,8 @@ subroutine read_hydro_params(nml_ok)
      M_SNII=19.134730
      eta_sn=0.20913717
   else if(TRIM(star_imf).eq.'chabrier')then
+     ! 0.313706 is the mass fraction in stars >8 Msun with the IMF integrated from 0.5 Msun;
+     ! integrated from 0.08 Msun (single-object Chabrier03, 0.08-150 Msun) it is 0.2391, M_SNII=20.74
      M_SNII=10. !TODO
      eta_sn=0.313706  !TODO
   else if(TRIM(star_imf).ne.'')then

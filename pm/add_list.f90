@@ -170,6 +170,7 @@ subroutine add_free(ind_part,np)
 !           st_n_SN(ind_part(j))=0.0
 !           st_e_SN(ind_part(j))=0.0
         endif
+        if(sf_cluster_sampling) st_imfs_tp(ind_part(j))=0.0
      end do
      if(metal)then
         do j=1,np
@@ -263,6 +264,7 @@ subroutine add_free_cond(ind_part,ok,np)
 !              st_n_SN(ind_part(j))=0.0
 !              st_e_SN(ind_part(j))=0.0
            endif
+           if(sf_cluster_sampling) st_imfs_tp(ind_part(j))=0.0
         endif
      end do
      if(metal)then

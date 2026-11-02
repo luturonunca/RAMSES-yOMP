@@ -242,6 +242,17 @@ subroutine backup_part(filename, filename_desc)
         !        call generic_dump("sn_energy", ivar, xdp, unit_out, dump_info, unit_info)
      endif
      ! END SD PATCH------------------------------------------------------!SD
+     if(sf_cluster_sampling) then
+        ! Write CbC IMF slope at birth
+        ipart=0
+        do i=1,npartmax
+           if(levelp(i)>0)then
+              ipart=ipart+1
+              xdp(ipart)=st_imfs_tp(i)
+           end if
+        end do
+        call generic_dump("birth_imf_slope", ivar, xdp, unit_out, dump_info, unit_info)
+     endif
 
      deallocate(xdp)
   end if
