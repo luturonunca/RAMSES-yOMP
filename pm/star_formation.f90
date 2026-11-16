@@ -1326,7 +1326,11 @@ subroutine starform2(ind_grid,ngrid,ilevel,ntot,mstar_tot_tmp,mstar_lost_tmp,see
            ! CbC: continuous SF-law budget (M_sf), captured before mgas is
            ! overwritten below by the Poisson-quantized n*mstar value. Capped
            ! at the same 90% depletion safety limit as the quantized path.
-           if(sf_cluster_sampling) cbc_mgas_buf(ind_cell(i)) = min(mgas, 0.9d0*mcell)
+           ! Divided by the trigger probability P(nstar>0)=1-exp(-PoissMean)
+           ! so that the expected mass formed per step is M_sf (unbiased for
+           ! M_sf<mstar; budget -> mstar for small PoissMean, -> M_sf for large).
+           if(sf_cluster_sampling .and. nstar(i)>0) cbc_mgas_buf(ind_cell(i)) = &
+                min(mgas/(1.0d0-exp(-PoissMean)), 0.9d0*mcell)
            ! Compute depleted gas mass
            mgas=nstar(i)*mstar
            ! Security to prevent more than 90% of gas depletion
