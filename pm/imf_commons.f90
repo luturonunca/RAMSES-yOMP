@@ -247,6 +247,36 @@ contains
   end subroutine sample_cluster_label
 
   !------------------------------------------------------------------
+  ! Draw the parent cluster mass label of a SF event from a lognormal
+  ! centred on Mcl_char (number-weighted CMF of the event). The draw is
+  ! mass-weighted, which for a lognormal shifts ln(centre) by sigma^2.
+  ! Independent of the event budget M_sf. All masses in Msun.
+  !------------------------------------------------------------------
+  subroutine sample_cluster_label_lognormal(Mcl_char, sigma_lnM, mmin, mmax, seed, mcl)
+    use random
+    real(dp), intent(in)    :: Mcl_char, sigma_lnM, mmin, mmax
+    integer,  intent(inout) :: seed(IRandNumSize)
+    real(dp), intent(out)   :: mcl
+
+    real(kind=8) :: RandNum1, RandNum2, v1, v2, rsq, fac, GaussNum
+
+    rsq = 0.0d0
+    do while(rsq.ge.1.0d0 .or. rsq.le.0.0d0)
+      call ranf(seed, RandNum1)
+      call ranf(seed, RandNum2)
+      v1  = 2.0d0*RandNum1 - 1.0d0
+      v2  = 2.0d0*RandNum2 - 1.0d0
+      rsq = v1**2 + v2**2
+    end do
+    fac      = sqrt(-2.0d0*log(rsq)/rsq)
+    GaussNum = v2*fac
+
+    mcl = exp(log(max(Mcl_char, 1.0d-30)) + sigma_lnM**2 + sigma_lnM*dble(GaussNum))
+    mcl = min(max(mcl, mmin), mmax)
+
+  end subroutine sample_cluster_label_lognormal
+
+  !------------------------------------------------------------------
   ! Decompose a SF event into clusters from CMF (dN/dM ~ M^{-2}).
   ! Environment-dependent caps privilege massive clusters at high Mj:
   !   mmin_eff = max(mmin0, mmin0*(Mj/Mj_ref)^delta)

@@ -436,10 +436,20 @@ subroutine star_formation(ilevel)
       ioff_cbc = ioff_cbc + n_cl_tmp
     end do
     cbc_offset(nevents_cbc+1) = ioff_cbc
-    ! Parent cluster mass label per event (cmf kernel), drawn after the
-    ! Phase 2 replay so the cluster-mass draws above stay identical
+    ! Parent cluster mass label per event, drawn after the Phase 2 replay
+    ! so the cluster-mass draws above stay identical. Lognormal kernel:
+    ! centred on the uncapped eps_cl*M_core (cbc_Mjsun holds min(.,M_sf))
     cbc_mcl = 0.0d0
-    if(trim(sf_cluster_kernel)/='lognormal') then
+    if(trim(sf_cluster_kernel)=='lognormal') then
+      do iev = 1, nevents_cbc
+        call sample_cluster_label_lognormal(cbc_mclchar_buf(cbc_cell(iev)), &
+             cbc_sigmalnm_buf(cbc_cell(iev)), sf_cluster_mmin, sf_cluster_mmax, &
+             localseed, cbc_mcl(iev))
+        ! Centre below the budget: the event is split into cluster-sized
+        ! particles, so each particle is its own cluster (label = own mass)
+        if(cbc_mclchar_buf(cbc_cell(iev)) < cbc_Msf(iev)) cbc_mcl(iev) = 0.0d0
+      end do
+    else
       do iev = 1, nevents_cbc
         call sample_cluster_label(cbc_Mjsun(iev), sf_cluster_mmin, sf_cluster_mmax, &
              sf_cluster_fcap, sf_cluster_mJref, sf_cluster_delta, localseed, cbc_mcl(iev))
