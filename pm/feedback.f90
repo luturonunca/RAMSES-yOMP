@@ -402,7 +402,11 @@ subroutine feedbk(ind_grid,ind_part,ind_grid_part,ng,np,ilevel)
            if(sf_cluster_sampling) then
              itab = 1
              if(st_imfs_tp(ind_part(j)) == imf_s(2)) itab = 2
-             call eta_sn_cluster(mp(ind_part(j))*scale_msun, itab, eta_cbc, msnii_cbc)
+             if(st_mcl_tp(ind_part(j)) > 0d0) then
+               call eta_sn_cluster(st_mcl_tp(ind_part(j)), itab, eta_cbc, msnii_cbc)
+             else
+               call eta_sn_cluster(mp(ind_part(j))*scale_msun, itab, eta_cbc, msnii_cbc)
+             endif
              ! eta_cbc is N_SN/Msun: ejected mass fraction is N_SN times mean progenitor mass
              eta_sn2 = eta_cbc*msnii_cbc
              ! 1d51 erg per SN; ESN is 1d51 erg per 10 Msun ejected

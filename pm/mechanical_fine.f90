@@ -216,7 +216,7 @@ subroutine mechanical_feedback_fine(ilevel,icount)
 !$omp & shared(scale_T2,ncpu,numbl,ilevel,myid,active,reception,numbp,xg,dx,skip_loc,headp,nextp,typep,use_initial_mass,mp0, &
 !$omp & scale_msun,mp,sn2_real_delay,tp,tpl,texp,tyoung,current_time,snII_Zdep_yield,zp,snII_freq,yield,dteff,idp,done_star,xp,scale,scale_t, &
 !$omp & ncoarse,ngridmax,son,vp,metal,dust,dust_chem,MC_tracer,tmpp,Zejecta_chem_II,ZDejecta_chem_II,dust_cond_eff,fsmall_ej,flarge_ej,nchunk, &
-!$omp & sf_log_properties,ifout,uold,gamma,sf_cluster_sampling,eta_sn,st_imfs_tp,imf_s)
+!$omp & sf_log_properties,ifout,uold,gamma,sf_cluster_sampling,eta_sn,st_imfs_tp,st_mcl_tp,imf_s)
      ip=0
      ! Loop over grids
 !$omp do schedule(dynamic,nchunk)
@@ -265,7 +265,13 @@ subroutine mechanical_feedback_fine(ilevel,icount)
                  if(sf_cluster_sampling) then
                    itab = 1
                    if(st_imfs_tp(ipart) == imf_s(2)) itab = 2
-                   call eta_sn_cluster(mass0, itab, eta_sn_cbc_mech, msnii_mech)
+                   ! eta_sn from the parent cluster mass label; particles without
+                   ! a label (e.g. from the ICs) fall back to their own mass
+                   if(st_mcl_tp(ipart) > 0d0) then
+                     call eta_sn_cluster(st_mcl_tp(ipart), itab, eta_sn_cbc_mech, msnii_mech)
+                   else
+                     call eta_sn_cluster(mass0, itab, eta_sn_cbc_mech, msnii_mech)
+                   endif
                    ! eta_sn_cbc_mech = imf_eta = N_SN/Msun (already a frequency).
                    ! Must NOT divide by M_SNII_var — that would make it ~10x too small,
                    ! causing runaway SF and no hot gas.

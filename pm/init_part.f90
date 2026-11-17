@@ -144,6 +144,10 @@
      if(sf_cluster_sampling) then
         allocate(st_imfs_tp(npartmax))
         st_imfs_tp=0.0
+        allocate(st_mcl_tp(npartmax))
+        st_mcl_tp=0.0
+        allocate(st_clid_tp(npartmax))
+        st_clid_tp=0.0
      endif
      if(metal)then
         allocate(zp(npartmax))
@@ -299,6 +303,12 @@
            ! Read CbC IMF slope at birth
            read(ilun)xdp
            st_imfs_tp(1:npart2) = xdp
+           ! Read CbC parent cluster mass label
+           read(ilun)xdp
+           st_mcl_tp(1:npart2) = xdp
+           ! Read CbC parent cluster id
+           read(ilun)xdp
+           st_clid_tp(1:npart2) = xdp
         endif
 
         deallocate(xdp)

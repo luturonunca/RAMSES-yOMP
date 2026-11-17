@@ -87,7 +87,8 @@ subroutine star_formation(ilevel)
   integer  :: ntot_cbc, nevents_cbc, iev, n_cl_tmp, ioff_cbc, icl_off
   integer,  allocatable :: cbc_cell(:), cbc_igrid(:), cbc_ncl(:), cbc_norig(:), cbc_offset(:)
   real(dp), allocatable :: cbc_mass_buf(:), cbc_Mjsun(:), cbc_xyz(:,:), cbc_uvw(:,:), cbc_zmet(:)
-  real(dp), allocatable :: cbc_Msf(:), cbc_avir(:), cbc_imfs(:)
+  real(dp), allocatable :: cbc_Msf(:), cbc_avir(:), cbc_imfs(:), cbc_mcl(:)
+  real(dp) :: clid_cbc
   integer  :: itab_cbc
   real(dp) :: eta_cbc_log, msnii_cbc_log
   integer,  dimension(IRandNumSize) :: localseed_saved
@@ -332,7 +333,7 @@ subroutine star_formation(ilevel)
     allocate(tmp_cluster_masses(max_clusters_per_event))
     allocate(cbc_cell(ntot), cbc_igrid(ntot), cbc_norig(ntot), cbc_ncl(ntot))
     allocate(cbc_Mjsun(ntot), cbc_xyz(ntot,3), cbc_uvw(ntot,3), cbc_zmet(ntot))
-    allocate(cbc_Msf(ntot), cbc_avir(ntot), cbc_imfs(ntot))
+    allocate(cbc_Msf(ntot), cbc_avir(ntot), cbc_imfs(ntot), cbc_mcl(ntot))
     localseed_saved = localseed
     ncache = active(ilevel)%ngrid
     do igrid = 1, ncache, nvector
@@ -435,6 +436,15 @@ subroutine star_formation(ilevel)
       ioff_cbc = ioff_cbc + n_cl_tmp
     end do
     cbc_offset(nevents_cbc+1) = ioff_cbc
+    ! Parent cluster mass label per event (cmf kernel), drawn after the
+    ! Phase 2 replay so the cluster-mass draws above stay identical
+    cbc_mcl = 0.0d0
+    if(trim(sf_cluster_kernel)/='lognormal') then
+      do iev = 1, nevents_cbc
+        call sample_cluster_label(cbc_Mjsun(iev), sf_cluster_mmin, sf_cluster_mmax, &
+             sf_cluster_fcap, sf_cluster_mJref, sf_cluster_delta, localseed, cbc_mcl(iev))
+      end do
+    endif
     ntot = ntot_cbc
   end if
   if(allocated(cbc_mclchar_buf))  deallocate(cbc_mclchar_buf)
@@ -760,6 +770,8 @@ subroutine star_formation(ilevel)
   !------------------------------------------------------------------
   if(sf_cluster_sampling .and. ntot_cbc > 0) then
     do iev = 1, nevents_cbc
+      ! Cluster id = id of the first star particle of the event
+      clid_cbc = dble(index_star + 1)
       do icl_off = cbc_offset(iev), cbc_offset(iev+1)-1
         index_star          = index_star + 1
         ok_new(1)           = .true.
@@ -784,6 +796,9 @@ subroutine star_formation(ilevel)
         vp(ind_part(1),3)            = cbc_uvw(iev,3)
         if(metal) zp(ind_part(1))    = cbc_zmet(iev)
         st_imfs_tp(ind_part(1))      = cbc_imfs(iev)
+        st_clid_tp(ind_part(1))      = clid_cbc
+        st_mcl_tp(ind_part(1))       = cbc_mcl(iev)
+        if(cbc_mcl(iev) <= 0.0d0) st_mcl_tp(ind_part(1)) = cbc_mass_buf(icl_off)
         if(sf_log_properties) then
           write(ilun,'(I10)',advance='no') 0
           write(ilun,'(2I10,E24.12)',advance='no') idp(ind_part(1)),ilevel,mp(ind_part(1))
@@ -806,7 +821,7 @@ subroutine star_formation(ilevel)
           write(ilun,'(E24.12)',advance='no') cbc_Mjsun(iev)
           itab_cbc = 1
           if(cbc_imfs(iev) == imf_s(2)) itab_cbc = 2
-          call eta_sn_cluster(cbc_mass_buf(icl_off), itab_cbc, eta_cbc_log, msnii_cbc_log)
+          call eta_sn_cluster(st_mcl_tp(ind_part(1)), itab_cbc, eta_cbc_log, msnii_cbc_log)
           write(ilun,'(E24.12)',advance='no') cbc_avir(iev)
           write(ilun,'(E24.12)',advance='no') cbc_imfs(iev)
           write(ilun,'(E24.12)',advance='no') eta_cbc_log
@@ -825,7 +840,7 @@ subroutine star_formation(ilevel)
     end do
     deallocate(cbc_cell, cbc_igrid, cbc_norig, cbc_ncl)
     deallocate(cbc_Mjsun, cbc_xyz, cbc_uvw, cbc_zmet)
-    deallocate(cbc_Msf, cbc_avir, cbc_imfs)
+    deallocate(cbc_Msf, cbc_avir, cbc_imfs, cbc_mcl)
     deallocate(cbc_mass_buf, cbc_offset)
     deallocate(tmp_cluster_masses)
   end if

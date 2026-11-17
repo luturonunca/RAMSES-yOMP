@@ -7,7 +7,7 @@ module sink_particle_tracer
   use pm_commons, only: numbp_free, numbp_free_tot, headp, itmpp, nextp, numbp, headp, nextp, levelp, &
        typep, tracer_seed
   ! Particle data
-  use pm_commons, only: idp, itmpp, typep, xp, vp, mp, tp, zp, st_n_tp, st_imfs_tp, mp0, partp, move_flag
+  use pm_commons, only: idp, itmpp, typep, xp, vp, mp, tp, zp, st_n_tp, st_imfs_tp, st_mcl_tp, st_clid_tp, mp0, partp, move_flag
 #ifdef NCHEM
   use pm_commons, only: chp
 #endif
@@ -380,7 +380,7 @@ contains
 #endif
        if(write_stellar_densities) &
             particle_data_width = particle_data_width + 1
-       if(sf_cluster_sampling) particle_data_width = particle_data_width + 1
+       if(sf_cluster_sampling) particle_data_width = particle_data_width + 3
        if(use_initial_mass) particle_data_width = particle_data_width + 1
     endif
 #ifdef NCHEM
@@ -657,6 +657,14 @@ contains
              reception(icpu,ilevel)%up(ind_com(i),current_property)=st_imfs_tp(ind_part(i))
           end do
           current_property = current_property+1
+          do i=1,np
+             reception(icpu,ilevel)%up(ind_com(i),current_property)=st_mcl_tp(ind_part(i))
+          end do
+          current_property = current_property+1
+          do i=1,np
+             reception(icpu,ilevel)%up(ind_com(i),current_property)=st_clid_tp(ind_part(i))
+          end do
+          current_property = current_property+1
        endif
        if(use_initial_mass)then
           do i=1,np
@@ -786,6 +794,14 @@ contains
        if(sf_cluster_sampling) then
           do i = 1, np
              st_imfs_tp(ind_part(i)) = emission(icpu, ilevel)%up(ind_com(i), current_property)
+          end do
+          current_property = current_property+1
+          do i = 1, np
+             st_mcl_tp(ind_part(i)) = emission(icpu, ilevel)%up(ind_com(i), current_property)
+          end do
+          current_property = current_property+1
+          do i = 1, np
+             st_clid_tp(ind_part(i)) = emission(icpu, ilevel)%up(ind_com(i), current_property)
           end do
           current_property = current_property+1
        endif

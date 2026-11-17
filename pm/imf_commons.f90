@@ -213,6 +213,40 @@ contains
   end subroutine eta_sn_cluster
 
   !------------------------------------------------------------------
+  ! Draw the parent cluster mass label of a SF event from the CMF
+  ! (dN/dM ~ M^{-2}) between the same caps as sample_cmf_clusters.
+  ! The draw is mass-weighted (M dN/dM ~ M^{-1}, i.e. uniform in ln M):
+  ! the label is the mass of the cluster a parcel of stars belongs to,
+  ! independent of the event budget M_sf. All masses in Msun.
+  !------------------------------------------------------------------
+  subroutine sample_cluster_label(Mj, mmin0, mmax, f_cap, Mj_ref, delta, seed, mcl)
+    use random
+    real(dp), intent(in)    :: Mj, mmin0, mmax, f_cap, Mj_ref, delta
+    integer,  intent(inout) :: seed(IRandNumSize)
+    real(dp), intent(out)   :: mcl
+
+    real(dp)     :: mmin_eff, mmax_eff
+    real(kind=8) :: RandNum
+
+    mmin_eff = mmin0
+    if(Mj > 0.0d0 .and. Mj_ref > 0.0d0) &
+      mmin_eff = mmin0 * (Mj / Mj_ref)**delta
+    mmin_eff = max(mmin_eff, mmin0)
+
+    mmax_eff = mmax
+    if(f_cap * Mj < mmax_eff) mmax_eff = f_cap * Mj
+
+    if(mmax_eff <= mmin_eff) then
+      mcl = mmin_eff
+      return
+    endif
+
+    call ranf(seed, RandNum)
+    mcl = mmin_eff * exp(dble(RandNum) * log(mmax_eff / mmin_eff))
+
+  end subroutine sample_cluster_label
+
+  !------------------------------------------------------------------
   ! Decompose a SF event into clusters from CMF (dN/dM ~ M^{-2}).
   ! Environment-dependent caps privilege massive clusters at high Mj:
   !   mmin_eff = max(mmin0, mmin0*(Mj/Mj_ref)^delta)

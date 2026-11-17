@@ -252,6 +252,24 @@ subroutine backup_part(filename, filename_desc)
            end if
         end do
         call generic_dump("birth_imf_slope", ivar, xdp, unit_out, dump_info, unit_info)
+        ! Write CbC parent cluster mass label
+        ipart=0
+        do i=1,npartmax
+           if(levelp(i)>0)then
+              ipart=ipart+1
+              xdp(ipart)=st_mcl_tp(i)
+           end if
+        end do
+        call generic_dump("cluster_mass", ivar, xdp, unit_out, dump_info, unit_info)
+        ! Write CbC parent cluster id
+        ipart=0
+        do i=1,npartmax
+           if(levelp(i)>0)then
+              ipart=ipart+1
+              xdp(ipart)=st_clid_tp(i)
+           end if
+        end do
+        call generic_dump("cluster_id", ivar, xdp, unit_out, dump_info, unit_info)
      endif
 
      deallocate(xdp)
