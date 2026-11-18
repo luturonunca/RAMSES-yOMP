@@ -780,7 +780,7 @@ subroutine star_formation(ilevel)
   !------------------------------------------------------------------
   if(sf_cluster_sampling .and. ntot_cbc > 0) then
     do iev = 1, nevents_cbc
-      ! Cluster id = id of the first star particle of the event
+      ! Cluster id = id of the first star particle of the event (label regime)
       clid_cbc = dble(index_star + 1)
       do icl_off = cbc_offset(iev), cbc_offset(iev+1)-1
         index_star          = index_star + 1
@@ -809,6 +809,8 @@ subroutine star_formation(ilevel)
         st_clid_tp(ind_part(1))      = clid_cbc
         st_mcl_tp(ind_part(1))       = cbc_mcl(iev)
         if(cbc_mcl(iev) <= 0.0d0) st_mcl_tp(ind_part(1)) = cbc_mass_buf(icl_off)
+        ! Split regime: each particle is its own cluster, with its own id
+        if(cbc_mcl(iev) <= 0.0d0) st_clid_tp(ind_part(1)) = dble(idp(ind_part(1)))
         if(sf_log_properties) then
           write(ilun,'(I10)',advance='no') 0
           write(ilun,'(2I10,E24.12)',advance='no') idp(ind_part(1)),ilevel,mp(ind_part(1))
