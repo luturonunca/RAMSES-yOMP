@@ -159,6 +159,7 @@
         chp=0.0
      end if
 #endif
+     if(sf_cluster_sampling) use_initial_mass=.true. ! CbC needs mp0; set before restart read
      if(use_initial_mass)then
         allocate(mp0(npartmax))
         mp0=0.0
@@ -309,6 +310,12 @@
            ! Read CbC parent cluster id
            read(ilun)xdp
            st_clid_tp(1:npart2) = xdp
+        endif
+        if(use_initial_mass .and. sf_cluster_sampling)then
+           if(any(is_star(typep(1:npart2)) .and. mp0(1:npart2)<=0d0))then
+              write(*,*)'ERROR init_part: star with mp0<=0 after restart read (record misalignment?)'
+              call clean_stop
+           endif
         endif
 
         deallocate(xdp)
