@@ -642,6 +642,7 @@ subroutine mech_fine(ind_grid,ind_pos_cell,np,ilevel,dteff,nSN,mSN,pSN,mZSN,mZdS
 
   ! starting index for passive variables except for imetal and chem
   i_fractions = ichem+nchem
+  if(metal .and. i_fractions<=imetal) i_fractions = imetal+1 ! metals are injected, not kept as a fraction (ichem defaults to imetal when nchem=0)
   if (dust) then
      ! Maybe redundant, sinc idust == imetal if .not. dust
      i_fractions = idust + ndust !!$dust_dev, ndust:#of bins, fractions begin after all bins
@@ -1359,6 +1360,7 @@ subroutine mech_fine_mpi(ilevel)
 
   ! starting index for passive variables except for imetal and chem
   i_fractions = ichem+nchem
+  if(metal .and. i_fractions<=imetal) i_fractions = imetal+1 ! metals are injected, not kept as a fraction (ichem defaults to imetal when nchem=0)
   if(dust)then
      ! Maybe redundant, sinc idust == imetal if .not. dust
      i_fractions = idust + ndust !!$dust_dev
